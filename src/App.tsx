@@ -20,6 +20,7 @@ import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Competitor, Insight } from './types';
 import { searchMarketInsights, generateMarketSummary, generateRegionInsights, generateGlobalSummary } from './services/gemini';
+import ChatBot from './components/ChatBot';
 
 export default function App() {
   const [competitors, setCompetitors] = useState<Competitor[]>([]);
@@ -773,6 +774,7 @@ export default function App() {
           </div>
         )}
       </main>
+      <ChatBot competitors={competitors} marketInsights={marketInsights} />
     </div>
     </>
   );

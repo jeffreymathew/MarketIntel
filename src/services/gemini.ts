@@ -75,6 +75,32 @@ IMPORTANT: Always provide a section "Sources" at the very bottom, with markdown 
   return response.text;
 }
 
+export async function chatWithMarketIntel(message: string, context: { competitors: string[], currentInsights: any[] }) {
+  const compList = context.competitors.join(", ");
+  const insightsContext = context.currentInsights.map(i => `- ${i.title}: ${i.summary}`).join("\n");
+  
+  const response = await ai.models.generateContent({
+    model: "gemini-3-flash-preview",
+    contents: `You are the TELUS AI Factory Market Intelligence Assistant. 
+Your goal is to help users understand the competitive landscape of AI and Cloud in Canada and globally.
+
+CONTEXT:
+Tracked Competitors: ${compList}
+Recent Market Insights:
+${insightsContext}
+
+USER QUESTION:
+${message}
+
+Provide a professional, concise, and data-driven response. Use Google Search if you need more recent information than what's provided in the context.`,
+    config: {
+      tools: [{ googleSearch: {} }],
+    }
+  });
+
+  return response.text;
+}
+
 export async function generateGlobalSummary(competitors: string[], marketInsights: any[]) {
   const keywords = AI_KEYWORDS.join(' OR ');
   const marketContext = marketInsights.map(i => `- ${i.title}: ${i.summary}`).join("\n");
