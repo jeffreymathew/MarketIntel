@@ -3,6 +3,28 @@
 @theme {
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+
+  --color-telus-purple: #4B286D;
+  --color-telus-green: #66CC00;
+
+  /* Overriding default slate colors with hex values to avoid oklch parsing issues in html2pdf.js */
+  --color-slate-50: #f8fafc;
+  --color-slate-100: #f1f5f9;
+  --color-slate-200: #e2e8f0;
+  --color-slate-300: #cbd5e1;
+  --color-slate-400: #94a3b8;
+  --color-slate-500: #64748b;
+  --color-slate-600: #475569;
+  --color-slate-700: #334155;
+  --color-slate-800: #1e293b;
+  --color-slate-900: #0f172a;
+  --color-slate-950: #020617;
+
+  /* Additional hex color overrides to avoid oklch parsing issues */
+  --color-emerald-500: #10b981;
+  --color-rose-500: #f43f5e;
+  --color-rose-400: #fb7185;
+  --color-blue-600: #2563eb;
 }
 
 :root {
@@ -70,7 +92,7 @@ body {
   font-weight: 700;
   margin-top: 1.25rem;
   margin-bottom: 0.625rem;
-  color: var(--ink);
+  color: var(--telus-purple);
 }
 
 .markdown-body h3 {
@@ -78,7 +100,7 @@ body {
   font-weight: 700;
   margin-top: 1rem;
   margin-bottom: 0.5rem;
-  color: var(--ink);
+  color: var(--telus-purple);
   text-transform: uppercase;
   letter-spacing: 0.025em;
 }
@@ -148,6 +170,16 @@ body {
   padding: 0.625rem 0.875rem;
   vertical-align: top;
   color: #4A5568;
+}
+
+.weekly-overview h1,
+.weekly-overview h2,
+.weekly-overview h3,
+.weekly-overview h4,
+.weekly-overview h5,
+.weekly-overview h6,
+.weekly-overview strong {
+  color: var(--telus-purple) !important;
 }
 
 .markdown-body tr:nth-child(even) {

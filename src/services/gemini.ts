@@ -4,17 +4,24 @@ const apiKey = process.env.GEMINI_API_KEY;
 const ai = new GoogleGenAI({ apiKey: apiKey! });
 
 const AI_KEYWORDS = [
-  "Sovereign AI", "AI factory", "AI infrastructure", "AI Compute", 
-  "Sovereign", "AI", "High-performance compute", "AI Cloud", "GPU Cloud Compute"
+  "AI infrastructure", "Sovereign Cloud", "AI Datacentres"
 ];
 
 export async function searchMarketInsights(query: string, domain?: string) {
-  const keywords = AI_KEYWORDS.join(' OR ');
+  const keywords = AI_KEYWORDS.map(k => `"${k}"`).join(' OR ');
   const domainFilter = domain ? `site:${domain} OR ` : '';
-  const prompt = `Find the latest news and market insights for: "${query}" AND (${keywords}). 
-Focus on developments in Canada or specific to their official domains (${domainFilter}location:canada). 
+  
+  // Check if this is a global query to exclude Canada
+  const isGlobal = query.toLowerCase().includes('global');
+  const exclusion = isGlobal ? ' -Canada -"British Columbia" -"Ontario" -"Quebec" -"Alberta"' : '';
+
+  const prompt = `Find the latest news and market insights for: "${query}" AND (${keywords})${exclusion}. 
+Focus ONLY on news related to 'AI infrastructure', 'Sovereign Cloud', or 'AI Datacentres' within the last 7 days.
+${isGlobal ? 'Focus on global developments EXCLUDING anything related to Canada.' : 
+  (domainFilter ? `Focus on developments specific to their official domains (${domainFilter}).` : `Focus on developments within the geographic region or topic specified in the query: "${query}".`)}
 Prioritize news from 2025 and 2026. 
-Focus on recent developments, financial performance, and competitive moves.`;
+Focus on recent developments, financial performance, and competitive moves.
+CRITICAL: The "url" field MUST be the direct, specific URL to the news article or press release, NOT a generic homepage or landing page.`;
 
   const response = await ai.models.generateContent({
     model: "gemini-3-flash-preview",
@@ -62,11 +69,12 @@ export async function generateRegionInsights(region: string) {
   const response = await ai.models.generateContent({
     model: "gemini-3-flash-preview",
     contents: `Provide a comprehensive executive summary of the latest news and developments in ${region}'s AI and Cloud sector.
+Focus ONLY on news related to 'AI infrastructure', 'Sovereign Cloud', or 'AI Datacentres' within the last 7 days.
 Keywords to focus on: "${region}", "${keywords}".
 Include specific data points, statistics, government investments, and major corporate announcements.
 Prioritize developments from 2025 and 2026.
 Format the output as a professional markdown report with clear headings, bullet points, and bold text for emphasis. Do not use generic filler.
-IMPORTANT: Always provide a section "Sources" at the very bottom, with markdown hyperlinks to each of the articles you referenced.`,
+IMPORTANT: Always provide a section "Sources" at the very bottom, with markdown hyperlinks to each of the specific articles you referenced. Ensure these are direct links to the articles, not just the parent website.`,
     config: {
       tools: [{ googleSearch: {} }],
     }
@@ -82,7 +90,7 @@ export async function chatWithMarketIntel(message: string, context: { competitor
   const response = await ai.models.generateContent({
     model: "gemini-3-flash-preview",
     contents: `You are the TELUS AI Factory Market Intelligence Assistant. 
-Your goal is to help users understand the competitive landscape of AI and Cloud in Canada and globally.
+Your goal is to help users understand the competitive landscape of AI and Cloud globally, with a focus on sovereign infrastructure.
 
 CONTEXT:
 Tracked Competitors: ${compList}
@@ -92,7 +100,8 @@ ${insightsContext}
 USER QUESTION:
 ${message}
 
-Provide a professional, concise, and data-driven response. Use Google Search if you need more recent information than what's provided in the context.`,
+Provide a professional, concise, and data-driven response. Use Google Search if you need more recent information than what's provided in the context.
+CRITICAL: If you use Google Search to find information, you MUST cite your sources at the end of your response with direct, specific links to the articles you found.`,
     config: {
       tools: [{ googleSearch: {} }],
     }
@@ -103,33 +112,35 @@ Provide a professional, concise, and data-driven response. Use Google Search if 
 
 export async function generateGlobalSummary(competitors: string[], marketInsights: any[]) {
   const keywords = AI_KEYWORDS.join(' OR ');
-  const marketContext = marketInsights.map(i => `- ${i.title}: ${i.summary}`).join("\n");
+  const marketContext = marketInsights.map(i => `- [${i.region}] ${i.title}: ${i.summary}`).join("\n");
   const compList = competitors.join(", ");
-  const currentDate = new Date();
-  const lastMonth = new Date(currentDate.getFullYear(), currentDate.getMonth() - 1, 1);
-  const monthName = lastMonth.toLocaleString('default', { month: 'long' });
-  const year = lastMonth.getFullYear();
   
   const response = await ai.models.generateContent({
     model: "gemini-3-flash-preview",
-    contents: `Provide a comprehensive "Market Overview" report for the month of ${monthName} ${year}.
+    contents: `Provide a comprehensive "Weekly Market Overview" report for the last 7 days.
     
-COMPETITORS TRACKED: ${compList}
+Focus ONLY on news related to 'AI infrastructure', 'Sovereign Cloud', or 'AI Datacentres' within the last 7 days.
+
+CRITICAL FOCUS: 
+1. This report should PREDOMINANTLY cover Canadian news updates.
+2. However, VERY PROMINENT news updates from the US and other global markets MUST be included as well to provide a complete picture of the landscape.
+
+COMPITITORS TRACKED: ${compList}
 
 KEYWORDS TO FOCUS ON: ${keywords}
 
-RELEVANT DEVELOPMENTS:
+RELEVANT DEVELOPMENTS FROM THE LAST 7 DAYS:
 ${marketContext}
 
 Your report MUST include:
-1. **Executive Summary**: A high-level synthesis of the AI and Cloud market landscape in ${monthName} ${year}.
-2. **Key News & Press Releases**: Major announcements from the tracked competitors and the broader industry.
-3. **Partnership Announcements (Tabular Format)**: A markdown table detailing significant strategic alliances, including Partner A, Partner B, and the Strategic Objective.
-4. **Data Points & Statistics**: Specific metrics, investment figures, or performance data.
-5. **Comparison Tables**: Comprehensive markdown tables comparing competitor moves, product launches, or regional investments across the tracked entities.
-6. **Market Outlook**: Forward-looking insights based on the month's developments.
+1. **Executive Summary**: A high-level synthesis of the AI and Cloud market landscape over the past 7 days, strictly focusing on AI infrastructure, Sovereign Cloud, and AI Datacentres.
+2. **Key News & Press Releases**: Major announcements from the tracked competitors and the broader industry within the last week.
+3. **Partnership Announcements (Tabular Format)**: A markdown table detailing significant strategic alliances announced this week, including Partner A, Partner B, and the Strategic Objective.
+4. **Data Points & Statistics**: Specific metrics, investment figures, or performance data reported in the last 7 days.
+5. **Comparison Tables**: Comprehensive markdown tables comparing competitor moves, product launches, or regional investments across the tracked entities based on this week's news.
+6. **Market Outlook**: Forward-looking insights based on the week's developments.
 
-Format the output as a professional markdown report with clear headings and bold text. **CRITICAL: All partnership announcements and competitive comparisons MUST be presented in well-structured markdown tables.** Use Google Search to find specific details for ${monthName} ${year} and the specified keywords if the provided context is insufficient.`,
+Format the output as a professional markdown report with clear headings and bold text. **CRITICAL: All partnership announcements and competitive comparisons MUST be presented in well-structured markdown tables.** Use Google Search to find specific details for the last 7 days and the specified keywords if the provided context is insufficient.`,
     config: {
       tools: [{ googleSearch: {} }],
     }

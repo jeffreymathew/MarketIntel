@@ -4,6 +4,17 @@ export interface Competitor {
   industry: string;
   domain?: string;
   executive_summary?: string;
+  logo_url?: string;
+  head_office?: string;
+  website?: string;
+  description?: string;
+  created_at: string;
+}
+
+export interface Market {
+  id: number;
+  name: string;
+  region_code: string;
   created_at: string;
 }
 
