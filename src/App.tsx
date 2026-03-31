@@ -18,13 +18,21 @@ import {
   Home,
   FileDown,
   Building2,
-  Info
+  Info,
+  Users,
+  Cpu,
+  Zap,
+  Handshake,
+  Server,
+  Database,
+  Activity,
+  Cloud
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Competitor, Insight, Market } from './types';
-import { searchMarketInsights, generateMarketSummary, generateRegionInsights, generateGlobalSummary } from './services/gemini';
+import { searchMarketInsights, generateMarketSummary, generateRegionInsights, generateGlobalSummary, generateCompetitorProfile } from './services/gemini';
 import ChatBot from './components/ChatBot';
 // @ts-ignore
 import html2pdf from 'html2pdf.js';
@@ -90,19 +98,88 @@ export default function App() {
   const [marketRegion, setMarketRegion] = useState<string>('canada');
   const summaryRef = useRef<HTMLDivElement>(null);
 
-  const exportToPDF = () => {
+  const [isExporting, setIsExporting] = useState(false);
+
+  const exportToDoc = async () => {
     if (!summaryRef.current) return;
     
-    const element = summaryRef.current;
-    const opt = {
-      margin: 10,
-      filename: `Weekly_Market_Overview_${new Date().toISOString().split('T')[0]}.pdf`,
-      image: { type: 'jpeg' as const, quality: 0.98 },
-      html2canvas: { scale: 2, useCORS: true, logging: false },
-      jsPDF: { unit: 'mm' as const, format: 'a4' as const, orientation: 'portrait' as const }
-    };
+    setIsExporting(true);
+    try {
+      const preHtml = `<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
+      <head><meta charset='utf-8'><title>Weekly Market Overview</title>
+      <style>
+        body { font-family: 'Inter', sans-serif; color: #1A1D21; }
+        h1, h2, h3, h4, h5, h6 { color: #4B286D; }
+        table { border-collapse: collapse; width: 100%; margin-top: 1em; margin-bottom: 1em; }
+        th, td { border: 1px solid #E9ECEF; padding: 8px; text-align: left; }
+        th { background-color: #F1F3F5; }
+      </style>
+      </head><body>`;
+      const postHtml = "</body></html>";
+      const html = preHtml + summaryRef.current.innerHTML + postHtml;
 
-    html2pdf().from(element).set(opt).save();
+      const response = await fetch('/api/export/google-doc', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          html,
+          title: `Weekly_Market_Overview_${new Date().toISOString().split('T')[0]}`
+        })
+      });
+
+      if (response.status === 401) {
+        // Not authenticated, start OAuth flow
+        const redirectUri = `${window.location.origin}/auth/callback`;
+        const authUrlResponse = await fetch(`/api/auth/google/url?redirectUri=${encodeURIComponent(redirectUri)}`);
+        const { url } = await authUrlResponse.json();
+        
+        const authWindow = window.open(url, 'oauth_popup', 'width=600,height=700');
+        if (!authWindow) {
+          alert('Please allow popups for this site to connect your Google account.');
+          setIsExporting(false);
+          return;
+        }
+
+        // Wait for authentication success
+        const handleMessage = async (event: MessageEvent) => {
+          if (!event.origin.endsWith('.run.app') && !event.origin.includes('localhost')) {
+            return;
+          }
+          if (event.data?.type === 'OAUTH_AUTH_SUCCESS') {
+            window.removeEventListener('message', handleMessage);
+            // Retry export
+            const retryResponse = await fetch('/api/export/google-doc', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                html,
+                title: `Weekly_Market_Overview_${new Date().toISOString().split('T')[0]}`
+              })
+            });
+            
+            if (retryResponse.ok) {
+              const data = await retryResponse.json();
+              window.open(data.url, '_blank');
+            } else {
+              alert('Failed to export to Google Docs.');
+            }
+            setIsExporting(false);
+          }
+        };
+        window.addEventListener('message', handleMessage);
+      } else if (response.ok) {
+        const data = await response.json();
+        window.open(data.url, '_blank');
+        setIsExporting(false);
+      } else {
+        alert('Failed to export to Google Docs.');
+        setIsExporting(false);
+      }
+    } catch (error) {
+      console.error('Export error:', error);
+      alert('An error occurred during export.');
+      setIsExporting(false);
+    }
   };
 
   useEffect(() => {
@@ -323,6 +400,7 @@ export default function App() {
     if (!target) return;
     setRefreshing(true);
     try {
+      // Fetch news results
       const results = await searchMarketInsights(target.name, target.domain);
       
       for (const result of results) {
@@ -338,23 +416,40 @@ export default function App() {
       
       await fetchInsights(target.id, true);
       
-      // Generate summary
-      const summary = await generateMarketSummary(target.name, results);
+      // Generate summary and profile simultaneously
+      const [summary, profile] = await Promise.all([
+        generateMarketSummary(target.name, results),
+        generateCompetitorProfile(target.name, target.domain)
+      ]);
+
+      if (profile) {
+        await fetch(`/api/competitors/${target.id}/profile`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(profile),
+        });
+      }
+
       if (summary) {
         await fetch(`/api/competitors/${target.id}/summary`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ executive_summary: summary }),
         });
-        
-        // Update local state for the selected competitor if it's the one we just refreshed
-        if (selectedCompetitor?.id === target.id) {
-          setExecutiveSummary(summary);
-          setSelectedCompetitor({ ...selectedCompetitor, executive_summary: summary });
+      }
+
+      // Refresh competitors list and selected competitor
+      const updatedCompetitorRes = await fetch('/api/competitors');
+      const updatedCompetitors = await updatedCompetitorRes.json();
+      const sorted = sortCompetitors(updatedCompetitors);
+      setCompetitors(sorted);
+
+      if (selectedCompetitor?.id === target.id) {
+        const fresh = sorted.find((c: Competitor) => c.id === target.id);
+        if (fresh) {
+          setSelectedCompetitor(fresh);
+          setExecutiveSummary(fresh.executive_summary || null);
         }
-        
-        // Update the competitors list so it has the new summary
-        setCompetitors(prev => prev.map(c => c.id === target.id ? { ...c, executive_summary: summary } : c));
       }
     } catch (error) {
       console.error("Refresh failed", error);
@@ -396,28 +491,24 @@ export default function App() {
 
   return (
     <>
-    <div className="flex h-screen overflow-hidden bg-[#F8F9FA]">
+    <div className="flex h-screen overflow-hidden bg-gradient-to-br from-[#F8F9FA] via-white to-purple-50/50">
       {/* Sidebar */}
-      <aside className="w-72 border-r border-[#3a1f54] bg-[#4B286D] text-white flex flex-col">
-        <div className="p-6 border-b border-white/10 flex items-center justify-between">
+      <aside className="w-72 border-r border-[#3a1f54]/50 bg-gradient-to-b from-[#4B286D] to-[#2A163D] text-white flex flex-col shadow-[4px_0_24px_rgba(0,0,0,0.1)] z-20 relative overflow-hidden">
+        <div className="absolute top-0 right-0 w-64 h-64 bg-white/5 rounded-full -mr-32 -mt-32 blur-3xl pointer-events-none" />
+        <div className="absolute bottom-0 left-0 w-48 h-48 bg-purple-500/10 rounded-full -ml-24 -mb-24 blur-2xl pointer-events-none" />
+        
+        <div className="p-6 border-b border-white/10 flex items-center justify-between relative z-10">
           <div className="flex flex-col">
             <h1 className="text-xs font-bold tracking-widest text-[#BEF264] uppercase opacity-80">TELUS AI Factory</h1>
             <h1 className="text-xl font-black tracking-tight text-white uppercase leading-none">MarketIntel</h1>
           </div>
-          <button 
-            onClick={() => { setCurrentView('welcome'); setSelectedCompetitor(null); setMarketRegion('canada'); }}
-            className="p-2 hover:bg-white/10 rounded-lg transition-colors group"
-            title="Home"
-          >
-            <Home className="w-5 h-5 text-[#D9F99D] group-hover:text-white transition-colors" />
-          </button>
         </div>
 
         <nav className="flex-1 overflow-y-auto px-3 py-2">
           <div className="text-[10px] font-bold text-white/50 uppercase tracking-widest px-3 mb-2 mt-2">Executive Summary</div>
           <div 
             onClick={() => { setCurrentView('global_summary'); setSelectedCompetitor(null); }}
-            className={`group flex items-center justify-between px-3 py-2.5 rounded-lg cursor-pointer transition-all mb-4 ${
+            className={`group flex items-center justify-between px-3 py-1.5 rounded-lg cursor-pointer transition-all mb-2 ${
               currentView === 'global_summary' ? 'bg-white/10 text-white' : 'hover:bg-white/5 text-white/70'
             }`}
           >
@@ -427,9 +518,11 @@ export default function App() {
             </div>
           </div>
 
-          <div className="text-[10px] font-bold text-white/50 uppercase tracking-widest px-3 mb-2 mt-2">Market Insights</div>
+          <div className="h-px bg-white/10 mx-3 my-3" />
+
+          <div className="text-[10px] font-bold text-white/50 uppercase tracking-widest px-3 mb-2">News & Updates</div>
           
-          <div className="px-3 mb-4">
+          <div className="px-3 mb-2">
             <form onSubmit={addMarket} className="space-y-2">
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-white/50" />
@@ -454,7 +547,7 @@ export default function App() {
             <div 
               key={m.id}
               onClick={() => { setCurrentView('market_intelligence'); setMarketRegion(m.region_code); setSelectedCompetitor(null); fetchMarketInsights(m.region_code); }}
-              className={`group flex items-center justify-between px-3 py-2.5 rounded-lg cursor-pointer transition-all mb-1 ${
+              className={`group flex items-center justify-between px-3 py-1.5 rounded-lg cursor-pointer transition-all mb-0.5 ${
                 currentView === 'market_intelligence' && marketRegion === m.region_code ? 'bg-white/10 text-white' : 'hover:bg-white/5 text-white/70'
               }`}
             >
@@ -471,9 +564,11 @@ export default function App() {
             </div>
           ))}
 
-          <div className="text-[10px] font-bold text-white/50 uppercase tracking-widest px-3 mb-2 mt-6">Competitor Landscape</div>
+          <div className="h-px bg-white/10 mx-3 my-3" />
+
+          <div className="text-[10px] font-bold text-white/50 uppercase tracking-widest px-3 mb-2">Competitor View</div>
           
-          <div className="px-3 mb-4">
+          <div className="px-3 mb-2">
             <form onSubmit={addCompetitor} className="space-y-2">
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-white/50" />
@@ -498,7 +593,7 @@ export default function App() {
             <div 
               key={c.id}
               onClick={() => { setCurrentView('competitor'); setSelectedCompetitor(c); }}
-              className={`group flex items-center justify-between px-3 py-2.5 rounded-lg cursor-pointer transition-all mb-1 ${
+              className={`group flex items-center justify-between px-3 py-1.5 rounded-lg cursor-pointer transition-all mb-0.5 ${
                 currentView === 'competitor' && selectedCompetitor?.id === c.id ? 'bg-white/10 text-white' : 'hover:bg-white/5 text-white/70'
               }`}
             >
@@ -527,10 +622,49 @@ export default function App() {
       </aside>
 
       {/* Main Content */}
-      <main className="flex-1 flex flex-col overflow-hidden">
+      <main className="flex-1 flex flex-col overflow-hidden relative">
+        {/* Top Navigation Header */}
+        <div className="w-full bg-white/70 backdrop-blur-xl border-b border-white/50 px-8 py-3 flex justify-center items-center flex-shrink-0 z-20 shadow-[0_4px_20px_rgba(0,0,0,0.02)]">
+          <div className="bg-white/80 backdrop-blur-md border border-white/60 shadow-[0_8px_30px_rgb(0,0,0,0.04)] rounded-full px-2 py-1.5 flex items-center gap-1">
+            <button 
+              onClick={() => { setCurrentView('welcome'); setSelectedCompetitor(null); }}
+              className={`px-4 py-2 rounded-full flex items-center gap-2 transition-all ${currentView === 'welcome' ? 'bg-gradient-to-r from-[#4B286D] to-[#6a399c] text-white shadow-[0_4px_15px_rgba(75,40,109,0.3)]' : 'text-slate-600 hover:bg-slate-100/80'}`}
+            >
+              <Home className="w-4 h-4" />
+              <span className="text-xs font-bold">Home</span>
+            </button>
+            <button 
+              onClick={() => { setCurrentView('global_summary'); setSelectedCompetitor(null); }}
+              className={`px-4 py-2 rounded-full flex items-center gap-2 transition-all ${currentView === 'global_summary' ? 'bg-gradient-to-r from-[#4B286D] to-[#6a399c] text-white shadow-[0_4px_15px_rgba(75,40,109,0.3)]' : 'text-slate-600 hover:bg-slate-100/80'}`}
+            >
+              <Globe className="w-4 h-4" />
+              <span className="text-xs font-bold">Market Overview</span>
+            </button>
+            <button 
+              onClick={() => { setCurrentView('market_intelligence'); setSelectedCompetitor(null); }}
+              className={`px-4 py-2 rounded-full flex items-center gap-2 transition-all ${currentView === 'market_intelligence' ? 'bg-gradient-to-r from-[#4B286D] to-[#6a399c] text-white shadow-[0_4px_15px_rgba(75,40,109,0.3)]' : 'text-slate-600 hover:bg-slate-100/80'}`}
+            >
+              <BarChart3 className="w-4 h-4" />
+              <span className="text-xs font-bold">News & Updates</span>
+            </button>
+            <button 
+              onClick={() => { 
+                setCurrentView('competitor');
+                if (!selectedCompetitor && competitors.length > 0) {
+                  setSelectedCompetitor(competitors[0]);
+                }
+              }}
+              className={`px-4 py-2 rounded-full flex items-center gap-2 transition-all ${currentView === 'competitor' ? 'bg-gradient-to-r from-[#4B286D] to-[#6a399c] text-white shadow-[0_4px_15px_rgba(75,40,109,0.3)]' : 'text-slate-600 hover:bg-slate-100/80'}`}
+            >
+              <Building2 className="w-4 h-4" />
+              <span className="text-xs font-bold">Competitor View</span>
+            </button>
+          </div>
+        </div>
+
         {currentView === 'global_summary' ? (
           <>
-            <header className="h-16 border-b border-[#E9ECEF] bg-white flex items-center justify-between px-8">
+            <header className="h-16 border-b border-white/60 bg-white/40 backdrop-blur-md flex items-center justify-between px-8 shadow-[0_4px_20px_rgba(0,0,0,0.01)]">
               <div className="flex items-center gap-4">
                 <h2 className="text-lg font-semibold text-telus-purple">Weekly Market Overview</h2>
                 <span className="px-2 py-0.5 bg-slate-100 text-telus-purple text-[10px] font-bold rounded uppercase tracking-wider">
@@ -540,17 +674,22 @@ export default function App() {
               <div className="flex items-center gap-3">
                 {globalSummary && (
                   <button 
-                    onClick={exportToPDF}
-                    className="flex items-center gap-2 px-4 py-2 bg-[#76B833] text-white rounded-lg text-sm font-semibold hover:bg-[#66992B] transition-all shadow-sm hover:shadow-md"
+                    onClick={exportToDoc}
+                    disabled={isExporting}
+                    className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-[#76B833] to-[#5c9126] text-white rounded-xl text-sm font-semibold hover:shadow-[0_8px_20px_rgba(118,184,51,0.3)] hover:-translate-y-0.5 transition-all shadow-md disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:transform-none"
                   >
-                    <FileDown className="w-4 h-4" />
-                    Export to PDF
+                    {isExporting ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <FileDown className="w-4 h-4" />
+                    )}
+                    {isExporting ? 'Exporting...' : 'Export to Google Docs'}
                   </button>
                 )}
                 <button 
                   onClick={() => refreshGlobalSummary()}
                   disabled={refreshing}
-                  className="flex items-center gap-2 px-4 py-2 bg-white border border-[#CED4DA] rounded-lg text-sm font-medium hover:bg-slate-50 transition-all disabled:opacity-50"
+                  className="flex items-center gap-2 px-4 py-2 bg-white/90 backdrop-blur-sm border border-white/50 rounded-xl text-sm font-medium hover:bg-white hover:shadow-md hover:-translate-y-0.5 transition-all shadow-sm disabled:opacity-50 disabled:hover:transform-none"
                 >
                   {refreshing ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
                   {refreshing ? 'Analyzing Last 7 Days...' : 'Refresh Summary'}
@@ -558,36 +697,213 @@ export default function App() {
               </div>
             </header>
 
-            <div className="flex-1 overflow-y-auto p-8 space-y-8">
-              {(loading || refreshing) && !globalSummary ? (
-                <SummarySkeleton />
-              ) : globalSummary?.content ? (
-                <motion.section 
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="bg-white border border-[#E9ECEF] rounded-2xl p-8 shadow-sm"
-                  ref={summaryRef}
-                >
-                  <div className="markdown-body weekly-overview">
-                    <Markdown remarkPlugins={[remarkGfm]}>{globalSummary.content}</Markdown>
-                  </div>
-                  {globalSummary.updated_at && (
-                    <div className="mt-8 pt-4 border-t border-slate-100 text-xs text-slate-400">
-                      Last updated: {new Date(globalSummary.updated_at).toLocaleString()}
+            <div className="flex-1 overflow-y-auto p-8">
+              <div className="flex flex-col xl:flex-row gap-8 max-w-7xl mx-auto">
+                {/* Main Content (Left) */}
+                <div className="flex-1 space-y-8">
+                  {(loading || refreshing) && !globalSummary ? (
+                    <SummarySkeleton />
+                  ) : globalSummary?.content ? (
+                    <motion.section 
+                      initial={{ opacity: 0, y: 20 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="bg-white/80 backdrop-blur-lg border border-white/60 rounded-3xl p-8 shadow-[0_8px_30px_rgb(0,0,0,0.04)] hover:shadow-[0_8px_30px_rgb(75,40,109,0.08)] transition-all duration-300"
+                      ref={summaryRef}
+                    >
+                      <div className="markdown-body weekly-overview">
+                        <Markdown remarkPlugins={[remarkGfm]}>{globalSummary.content.replace(/<br\s*\/?>/gi, ' ')}</Markdown>
+                      </div>
+                      {globalSummary.updated_at && (
+                        <div className="mt-8 pt-4 border-t border-slate-100 text-xs text-slate-400">
+                          Last updated: {new Date(globalSummary.updated_at).toLocaleString()}
+                        </div>
+                      )}
+                    </motion.section>
+                  ) : (
+                    <div className="bg-white/80 backdrop-blur-lg p-12 flex flex-col items-center justify-center gap-4 text-slate-400 rounded-3xl border border-white/60 shadow-[0_8px_30px_rgb(0,0,0,0.04)]">
+                      <Globe className="w-8 h-8" />
+                      <p className="text-sm">No summary available. Click "Refresh Summary" to generate a strategic overview.</p>
                     </div>
                   )}
-                </motion.section>
-              ) : (
-                <div className="bg-white p-12 flex flex-col items-center justify-center gap-4 text-slate-400 rounded-2xl border border-[#E9ECEF]">
-                  <Globe className="w-8 h-8" />
-                  <p className="text-sm">No summary available. Click "Refresh Summary" to generate a strategic overview.</p>
                 </div>
-              )}
+
+                {/* Right Panel (Infographic) */}
+                <div className="w-full xl:w-96 flex-shrink-0 space-y-6">
+                  <div className="bg-gradient-to-br from-[#4B286D] to-[#2A163D] rounded-3xl p-6 text-white shadow-xl relative overflow-hidden">
+                    <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full -mr-16 -mt-16 blur-2xl" />
+                    <div className="absolute bottom-0 left-0 w-24 h-24 bg-white/5 rounded-full -ml-12 -mb-12 blur-xl" />
+                    
+                    <div className="relative z-10">
+                      <h3 className="text-xs font-black tracking-widest text-[#BEF264] uppercase mb-6 flex items-center gap-2">
+                        <Map className="w-4 h-4" />
+                        Canadian Landscape
+                      </h3>
+                      
+                      <div className="space-y-5">
+                        {/* TAM */}
+                        <div>
+                          <p className="text-white/60 text-[10px] uppercase tracking-wider font-bold mb-1">Canadian AI TAM</p>
+                          <div className="flex items-end gap-2">
+                            <span className="text-3xl font-black tracking-tighter">$5.5B+</span>
+                            <span className="text-[#BEF264] text-xs font-bold mb-1.5 flex items-center"><TrendingUp className="w-3 h-3 mr-0.5" /> 28% CAGR</span>
+                          </div>
+                        </div>
+
+                        <div className="h-px w-full bg-white/10" />
+
+                        {/* Funding */}
+                        <div>
+                          <p className="text-white/60 text-[10px] uppercase tracking-wider font-bold mb-1">Federal AI Compute Fund</p>
+                          <div className="flex items-end gap-2">
+                            <span className="text-3xl font-black tracking-tighter">$2.4B</span>
+                            <span className="text-white/80 text-xs font-medium mb-1.5">CAD</span>
+                          </div>
+                        </div>
+
+                        <div className="h-px w-full bg-white/10" />
+
+                        {/* Infrastructure */}
+                        <div>
+                          <p className="text-white/60 text-[10px] uppercase tracking-wider font-bold mb-3">Infrastructure & Power</p>
+                          <div className="space-y-2">
+                            <div className="flex items-center justify-between text-sm">
+                              <span className="text-white/80">High-Density Power</span>
+                              <span className="font-bold">100MW+ Targets</span>
+                            </div>
+                            <div className="flex items-center justify-between text-sm">
+                              <span className="text-white/80">GPU Clusters</span>
+                              <span className="font-bold">H100 / B200</span>
+                            </div>
+                            <div className="flex items-center justify-between text-sm">
+                              <span className="text-white/80">Data Residency</span>
+                              <span className="font-bold text-[#BEF264]">100% Sovereign</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="h-px w-full bg-white/10" />
+
+                        {/* Key Players */}
+                        <div>
+                          <p className="text-white/60 text-[10px] uppercase tracking-wider font-bold mb-3">Key Ecosystem Players</p>
+                          <div className="flex flex-wrap gap-2">
+                            {['TELUS', 'Cohere', 'Tenstorrent', 'Sanctuary AI', 'Radical AI', 'Mila'].map(player => (
+                              <span key={player} className="px-2.5 py-1 bg-white/10 rounded-lg text-[10px] font-bold border border-white/5">
+                                {player}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="bg-gradient-to-br from-slate-900 to-slate-800 rounded-3xl p-6 text-white shadow-xl relative overflow-hidden">
+                    <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full -mr-16 -mt-16 blur-2xl" />
+                    <div className="absolute bottom-0 left-0 w-24 h-24 bg-[#4B286D]/40 rounded-full -ml-12 -mb-12 blur-xl" />
+                    
+                    <div className="relative z-10">
+                      <h3 className="text-xs font-black tracking-widest text-[#BEF264] uppercase mb-6 flex items-center gap-2">
+                        <Activity className="w-4 h-4" />
+                        Market at a Glance
+                      </h3>
+                      
+                      <div className="space-y-6">
+                        {/* Stat 1 */}
+                        <div>
+                          <p className="text-white/60 text-[10px] uppercase tracking-wider font-bold mb-1">Global AI Infrastructure TAM</p>
+                          <div className="flex items-end gap-2">
+                            <span className="text-4xl font-black tracking-tighter">$150B+</span>
+                            <span className="text-[#BEF264] text-xs font-bold mb-1.5 flex items-center"><TrendingUp className="w-3 h-3 mr-0.5" /> 35% CAGR</span>
+                          </div>
+                        </div>
+
+                        <div className="h-px w-full bg-white/10" />
+
+                        {/* Stat 2 */}
+                        <div>
+                          <p className="text-white/60 text-[10px] uppercase tracking-wider font-bold mb-3">Key Growth Drivers</p>
+                          <div className="space-y-2">
+                            <div className="flex items-center gap-3">
+                              <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center flex-shrink-0">
+                                <Cpu className="w-4 h-4 text-[#BEF264]" />
+                              </div>
+                              <span className="text-sm font-medium">LLM Training & Inference</span>
+                            </div>
+                            <div className="flex items-center gap-3">
+                              <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center flex-shrink-0">
+                                <Globe className="w-4 h-4 text-[#BEF264]" />
+                              </div>
+                              <span className="text-sm font-medium">Sovereign AI Initiatives</span>
+                            </div>
+                            <div className="flex items-center gap-3">
+                              <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center flex-shrink-0">
+                                <Server className="w-4 h-4 text-[#BEF264]" />
+                              </div>
+                              <span className="text-sm font-medium">High-Density Data Centers</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="h-px w-full bg-white/10" />
+
+                        {/* Stat 3 */}
+                        <div>
+                          <p className="text-white/60 text-[10px] uppercase tracking-wider font-bold mb-3">Market Share (Accelerators)</p>
+                          <div className="space-y-3">
+                            <div>
+                              <div className="flex justify-between text-xs mb-1">
+                                <span className="font-bold">NVIDIA</span>
+                                <span className="text-white/60">~85%</span>
+                              </div>
+                              <div className="w-full bg-white/10 rounded-full h-1.5">
+                                <div className="bg-[#BEF264] h-1.5 rounded-full" style={{ width: '85%' }}></div>
+                              </div>
+                            </div>
+                            <div>
+                              <div className="flex justify-between text-xs mb-1">
+                                <span className="font-bold">AMD</span>
+                                <span className="text-white/60">~10%</span>
+                              </div>
+                              <div className="w-full bg-white/10 rounded-full h-1.5">
+                                <div className="bg-white/40 h-1.5 rounded-full" style={{ width: '10%' }}></div>
+                              </div>
+                            </div>
+                            <div>
+                              <div className="flex justify-between text-xs mb-1">
+                                <span className="font-bold">Custom Silicon (TPU, Trainium)</span>
+                                <span className="text-white/60">~5%</span>
+                              </div>
+                              <div className="w-full bg-white/10 rounded-full h-1.5">
+                                <div className="bg-white/20 h-1.5 rounded-full" style={{ width: '5%' }}></div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="bg-white/80 backdrop-blur-lg rounded-3xl p-6 border border-white/60 shadow-[0_8px_30px_rgb(0,0,0,0.04)]">
+                    <h3 className="text-xs font-black tracking-widest text-[#4B286D] uppercase mb-4 flex items-center gap-2">
+                      <Cloud className="w-4 h-4" />
+                      Emerging Trends
+                    </h3>
+                    <div className="flex flex-wrap gap-2">
+                      {['Liquid Cooling', 'Edge AI', 'Hybrid Cloud', 'Silicon Photonics', 'AI PCs'].map(tag => (
+                        <span key={tag} className="px-3 py-1.5 bg-slate-100 text-slate-600 rounded-xl text-[10px] font-bold">
+                          {tag}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
           </>
         ) : currentView === 'market_intelligence' ? (
           <>
-            <header className="h-16 border-b border-[#E9ECEF] bg-white flex items-center justify-between px-8">
+            <header className="h-16 border-b border-white/60 bg-white/40 backdrop-blur-md flex items-center justify-between px-8 shadow-[0_4px_20px_rgba(0,0,0,0.01)]">
               <div className="flex items-center gap-4">
                 <h2 className="text-lg font-semibold">News & Updates - {markets.find(m => m.region_code === marketRegion)?.name || marketRegion}</h2>
                 <span className="px-2 py-0.5 bg-slate-100 text-slate-500 text-[10px] font-bold rounded uppercase tracking-wider">
@@ -598,7 +914,7 @@ export default function App() {
                 <button 
                   onClick={() => refreshMarketInsights()}
                   disabled={refreshing}
-                  className="flex items-center gap-2 px-4 py-2 bg-white border border-[#CED4DA] rounded-lg text-sm font-medium hover:bg-slate-50 transition-all disabled:opacity-50"
+                  className="flex items-center gap-2 px-4 py-2 bg-white/90 backdrop-blur-sm border border-white/50 rounded-xl text-sm font-medium hover:bg-white hover:shadow-md hover:-translate-y-0.5 transition-all shadow-sm disabled:opacity-50 disabled:hover:transform-none"
                 >
                   {refreshing ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
                   {refreshing ? 'Scanning Web...' : 'Refresh Insights'}
@@ -649,7 +965,7 @@ export default function App() {
                         </motion.div>
                       ))
                     ) : (
-                      <div className="bg-white p-12 flex flex-col items-center justify-center gap-4 text-slate-400">
+                      <div className="bg-white/80 backdrop-blur-lg p-12 flex flex-col items-center justify-center gap-4 text-slate-400 rounded-3xl border border-white/60 shadow-[0_8px_30px_rgb(0,0,0,0.04)]">
                         <AlertCircle className="w-8 h-8" />
                         <p className="text-sm">No insights available. {refreshing ? 'Scanning the web now...' : 'Click "Refresh Insights" to scan the web.'}</p>
                       </div>
@@ -661,7 +977,7 @@ export default function App() {
           </>
         ) : currentView === 'competitor' && selectedCompetitor ? (
           <>
-            <header className="h-16 border-b border-[#E9ECEF] bg-white flex items-center justify-between px-8">
+            <header className="h-16 border-b border-white/60 bg-white/40 backdrop-blur-md flex items-center justify-between px-8 shadow-[0_4px_20px_rgba(0,0,0,0.01)]">
               <div className="flex items-center gap-4">
                 <h2 className="text-lg font-semibold">{selectedCompetitor.name}</h2>
                 <span className="px-2 py-0.5 bg-slate-100 text-slate-500 text-[10px] font-bold rounded uppercase tracking-wider">
@@ -671,7 +987,7 @@ export default function App() {
               <button 
                 onClick={() => refreshInsights()}
                 disabled={refreshing}
-                className="flex items-center gap-2 px-4 py-2 bg-white border border-[#CED4DA] rounded-lg text-sm font-medium hover:bg-slate-50 transition-all disabled:opacity-50"
+                className="flex items-center gap-2 px-4 py-2 bg-white/90 backdrop-blur-sm border border-white/50 rounded-xl text-sm font-medium hover:bg-white hover:shadow-md hover:-translate-y-0.5 transition-all shadow-sm disabled:opacity-50 disabled:hover:transform-none"
               >
                 {refreshing ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
                 {refreshing ? 'Scanning Web...' : 'Refresh Insights'}
@@ -681,6 +997,25 @@ export default function App() {
             <div className="flex-1 overflow-y-auto p-8">
               <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-8">
                 <div className="space-y-8">
+                  {/* Executive Summary */}
+                  {refreshing && !executiveSummary ? (
+                    <SummarySkeleton />
+                  ) : executiveSummary ? (
+                    <motion.section 
+                      initial={{ opacity: 0, y: 20 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="bg-white/80 backdrop-blur-lg border border-white/60 rounded-3xl p-8 shadow-[0_8px_30px_rgb(0,0,0,0.04)] hover:shadow-[0_8px_30px_rgb(75,40,109,0.08)] transition-all duration-300"
+                    >
+                      <div className="flex items-center gap-2 mb-6 pb-4 border-b border-slate-100">
+                        <BarChart3 className="w-5 h-5 text-[#4B286D]" />
+                        <h3 className="font-bold text-lg text-slate-900">Executive Summary</h3>
+                      </div>
+                      <div className="markdown-body">
+                        <Markdown remarkPlugins={[remarkGfm]}>{executiveSummary.replace(/<br\s*\/?>/gi, ' ')}</Markdown>
+                      </div>
+                    </motion.section>
+                  ) : null}
+
                   {/* Insights List */}
                   <section>
                     <div className="flex items-center justify-between mb-4">
@@ -724,7 +1059,7 @@ export default function App() {
                             </motion.div>
                           ))
                         ) : (
-                          <div className="bg-white p-12 flex flex-col items-center justify-center gap-4 text-slate-400">
+                          <div className="bg-white/80 backdrop-blur-lg p-12 flex flex-col items-center justify-center gap-4 text-slate-400 rounded-3xl border border-white/60 shadow-[0_8px_30px_rgb(0,0,0,0.04)]">
                             <AlertCircle className="w-8 h-8" />
                             <p className="text-sm">No insights available. {refreshing ? 'Scanning the web now...' : 'Click "Refresh Insights" to scan the web.'}</p>
                           </div>
@@ -732,112 +1067,164 @@ export default function App() {
                       </AnimatePresence>
                     </div>
                   </section>
-
-                  {/* Executive Summary */}
-                  {refreshing && !executiveSummary ? (
-                    <SummarySkeleton />
-                  ) : executiveSummary ? (
-                    <motion.section 
-                      initial={{ opacity: 0, y: 20 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      className="bg-white border border-[#E9ECEF] rounded-2xl p-8 shadow-sm"
-                    >
-                      <div className="flex items-center gap-2 mb-6 pb-4 border-b border-slate-100">
-                        <BarChart3 className="w-5 h-5 text-[#4B286D]" />
-                        <h3 className="font-bold text-lg text-slate-900">Executive Summary</h3>
-                      </div>
-                      <div className="markdown-body">
-                        <Markdown remarkPlugins={[remarkGfm]}>{executiveSummary}</Markdown>
-                      </div>
-                    </motion.section>
-                  ) : null}
                 </div>
 
-                {/* Right Sidebar - Competitor Profile */}
+                {/* Right Sidebar - Competitor Profile Infographic */}
                 <aside className="space-y-6">
                   <motion.div 
                     initial={{ opacity: 0, x: 20 }}
                     animate={{ opacity: 1, x: 0 }}
-                    className="bg-white border border-[#E9ECEF] rounded-2xl overflow-hidden shadow-sm"
+                    className="bg-white/80 backdrop-blur-lg border border-white/60 rounded-3xl overflow-hidden shadow-[0_8px_30px_rgb(0,0,0,0.04)] hover:shadow-[0_8px_30px_rgb(75,40,109,0.08)] transition-all duration-300"
                   >
-                    <div className="p-6 border-b border-slate-50 bg-slate-50/50">
-                      <div className="flex items-center gap-4 mb-4">
-                        <div className="w-16 h-16 bg-white rounded-xl border border-slate-100 p-2 flex items-center justify-center shadow-sm">
+                    {/* Infographic Header */}
+                    <div className="relative p-8 bg-gradient-to-br from-slate-900 to-slate-800 text-white overflow-hidden">
+                      <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full -mr-16 -mt-16 blur-2xl" />
+                      <div className="absolute bottom-0 left-0 w-24 h-24 bg-[#4B286D]/20 rounded-full -ml-12 -mb-12 blur-xl" />
+                      
+                      <div className="relative z-10 flex flex-col items-center text-center">
+                        <div className="w-20 h-20 bg-white/90 backdrop-blur-sm rounded-2xl p-3 flex items-center justify-center shadow-xl mb-4 transform -rotate-3 hover:rotate-0 transition-transform duration-300 border border-white/50">
                           {selectedCompetitor.logo_url ? (
                             <img 
-                              src={selectedCompetitor.logo_url} 
+                              src={(() => {
+                                let url = selectedCompetitor.logo_url;
+                                if (url.includes('logo.dev')) {
+                                  const token = import.meta.env.VITE_LOGO_DEV_TOKEN;
+                                  if (token && token !== 'pk_YOUR_TOKEN') {
+                                    if (url.includes('pk_YOUR_TOKEN')) {
+                                      url = url.replace('pk_YOUR_TOKEN', token);
+                                    } else if (!url.includes('token=')) {
+                                      url = url.includes('?') ? `${url}&token=${token}` : `${url}?token=${token}`;
+                                    }
+                                  }
+                                }
+                                return url;
+                              })()}
                               alt={selectedCompetitor.name} 
                               className="max-w-full max-h-full object-contain"
                               referrerPolicy="no-referrer"
+                              onError={(e) => {
+                                e.currentTarget.style.display = 'none';
+                                const nextSibling = e.currentTarget.nextElementSibling;
+                                if (nextSibling) {
+                                  nextSibling.classList.remove('hidden');
+                                }
+                              }}
                             />
                           ) : (
-                            <Building2 className="w-8 h-8 text-slate-300" />
+                            <Building2 className="w-10 h-10 text-slate-300" />
+                          )}
+                          {selectedCompetitor.logo_url && (
+                            <Building2 className="w-10 h-10 text-slate-300 hidden" />
                           )}
                         </div>
-                        <div>
-                          <h3 className="font-bold text-slate-900 leading-tight">{selectedCompetitor.name}</h3>
-                          <p className="text-xs text-slate-500 mt-1">{selectedCompetitor.industry}</p>
+                        <h3 className="text-xl font-black tracking-tight leading-none">{selectedCompetitor.name}</h3>
+                        <div className="mt-2 px-3 py-1 bg-white/10 backdrop-blur-md rounded-full border border-white/10">
+                          <p className="text-[10px] font-bold uppercase tracking-widest text-white/80">{selectedCompetitor.industry}</p>
                         </div>
                       </div>
-                      
-                      {selectedCompetitor.description && (
-                        <p className="text-xs text-slate-600 leading-relaxed line-clamp-4">
-                          {selectedCompetitor.description}
-                        </p>
-                      )}
                     </div>
 
-                    <div className="p-6 space-y-4">
-                      <div className="flex items-start gap-3">
-                        <div className="p-1.5 bg-slate-100 rounded-lg text-slate-500">
-                          <Map className="w-3.5 h-3.5" />
+                    {/* Infographic Description */}
+                    {selectedCompetitor.description && (
+                      <div className="px-8 py-6 bg-slate-50/50 border-b border-slate-100">
+                        <p className="text-xs text-slate-600 leading-relaxed italic text-center">
+                          "{selectedCompetitor.description}"
+                        </p>
+                      </div>
+                    )}
+
+                    {/* Infographic Stats Grid */}
+                    <div className="p-4 grid grid-cols-2 gap-3">
+                      {/* Size Stat */}
+                      <div className="p-4 bg-blue-50/50 rounded-2xl border border-blue-100/50 flex flex-col items-center text-center">
+                        <div className="p-2 bg-blue-100 rounded-xl text-blue-600 mb-2">
+                          <Users className="w-4 h-4" />
                         </div>
-                        <div>
-                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Head Office</p>
-                          <p className="text-xs text-slate-700 font-medium">{selectedCompetitor.head_office || 'N/A'}</p>
+                        <p className="text-[9px] font-black text-blue-400 uppercase tracking-tighter">Scale & Size</p>
+                        <p className="text-[11px] font-bold text-slate-800 mt-1">{selectedCompetitor.size || 'N/A'}</p>
+                      </div>
+
+                      {/* Power Stat */}
+                      <div className="p-4 bg-amber-50/50 rounded-2xl border border-amber-100/50 flex flex-col items-center text-center">
+                        <div className="p-2 bg-amber-100 rounded-xl text-amber-600 mb-2">
+                          <Zap className="w-4 h-4" />
+                        </div>
+                        <p className="text-[9px] font-black text-amber-400 uppercase tracking-tighter">Power Capacity</p>
+                        <p className="text-[11px] font-bold text-slate-800 mt-1">{selectedCompetitor.power_capacity || 'N/A'}</p>
+                      </div>
+
+                      {/* GPU Stat */}
+                      <div className="p-4 bg-emerald-50/50 rounded-2xl border border-emerald-100/50 flex flex-col items-center text-center col-span-2">
+                        <div className="flex items-center gap-3 w-full">
+                          <div className="p-2 bg-emerald-100 rounded-xl text-emerald-600">
+                            <Cpu className="w-4 h-4" />
+                          </div>
+                          <div className="text-left flex-1 min-w-0">
+                            <p className="text-[9px] font-black text-emerald-400 uppercase tracking-tighter">Computing Power (GPU)</p>
+                            <p className="text-xs font-bold text-slate-800 mt-0.5">{selectedCompetitor.gpu_type || 'N/A'}</p>
+                          </div>
                         </div>
                       </div>
 
-                      <div className="flex items-start gap-3">
-                        <div className="p-1.5 bg-slate-100 rounded-lg text-slate-500">
-                          <Globe className="w-3.5 h-3.5" />
+                      {/* Location Stat */}
+                      <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 flex items-center gap-3 col-span-2">
+                        <div className="p-2 bg-slate-200 rounded-xl text-slate-500">
+                          <Map className="w-4 h-4" />
                         </div>
-                        <div>
-                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Website</p>
-                          {selectedCompetitor.website ? (
-                            <a 
-                              href={selectedCompetitor.website} 
-                              target="_blank" 
-                              rel="noreferrer"
-                              className="text-xs text-blue-600 font-medium hover:underline flex items-center gap-1"
-                            >
-                              {selectedCompetitor.domain || 'Visit Site'}
-                              <ExternalLink className="w-2.5 h-2.5" />
-                            </a>
-                          ) : (
-                            <p className="text-xs text-slate-700 font-medium">N/A</p>
-                          )}
+                        <div className="text-left flex-1 min-w-0">
+                          <p className="text-[9px] font-black text-slate-400 uppercase tracking-tighter">Global Footprint</p>
+                          <p className="text-xs font-bold text-slate-800 mt-0.5">{selectedCompetitor.location || selectedCompetitor.head_office || 'N/A'}</p>
                         </div>
                       </div>
+                    </div>
 
-                      <div className="flex items-start gap-3">
-                        <div className="p-1.5 bg-slate-100 rounded-lg text-slate-500">
-                          <Info className="w-3.5 h-3.5" />
+                    {/* Partnerships & Customers Section */}
+                    <div className="px-8 pb-8 space-y-6">
+                      <div className="h-px bg-slate-100 w-full" />
+                      
+                      <div className="space-y-4">
+                        <div className="flex items-center gap-2">
+                          <Handshake className="w-4 h-4 text-[#4B286D]" />
+                          <h4 className="text-[10px] font-black text-[#4B286D] uppercase tracking-widest">Strategic Alliances</h4>
                         </div>
-                        <div>
-                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Industry</p>
-                          <p className="text-xs text-slate-700 font-medium">{selectedCompetitor.industry}</p>
+                        <p className="text-xs text-slate-600 leading-relaxed bg-slate-50 p-3 rounded-xl border border-slate-100">
+                          {selectedCompetitor.partnerships || 'No major partnerships documented.'}
+                        </p>
+                      </div>
+
+                      <div className="space-y-4">
+                        <div className="flex items-center gap-2">
+                          <Users className="w-4 h-4 text-[#4B286D]" />
+                          <h4 className="text-[10px] font-black text-[#4B286D] uppercase tracking-widest">Key Customers</h4>
                         </div>
+                        <p className="text-xs text-slate-600 leading-relaxed bg-slate-50 p-3 rounded-xl border border-slate-100">
+                          {selectedCompetitor.customers || 'Enterprise and government client list pending.'}
+                        </p>
+                      </div>
+
+                      {/* Website Link */}
+                      <div className="pt-2">
+                        {selectedCompetitor.website && (
+                          <a 
+                            href={selectedCompetitor.website} 
+                            target="_blank" 
+                            rel="noreferrer"
+                            className="w-full flex items-center justify-center gap-2 py-3 bg-[#4B286D] text-white rounded-xl text-xs font-bold hover:bg-[#3d2058] transition-colors shadow-lg shadow-[#4B286D]/20"
+                          >
+                            Explore {selectedCompetitor.domain || 'Official Site'}
+                            <ExternalLink className="w-3 h-3" />
+                          </a>
+                        )}
                       </div>
                     </div>
                   </motion.div>
 
-                  {/* Quick Stats or Tags */}
-                  <div className="bg-[#4B286D]/5 border border-[#4B286D]/10 rounded-2xl p-6">
-                    <h4 className="text-xs font-bold text-[#4B286D] uppercase tracking-widest mb-4">Strategic Focus</h4>
-                    <div className="flex flex-wrap gap-2">
+                  {/* Strategic Focus Tags */}
+                  <div className="bg-[#4B286D]/5 border border-[#4B286D]/10 rounded-3xl p-8">
+                    <h4 className="text-[10px] font-black text-[#4B286D] uppercase tracking-[0.2em] mb-6 text-center">Core Strategic Pillars</h4>
+                    <div className="flex flex-wrap justify-center gap-2">
                       {['AI Infrastructure', 'Sovereign Cloud', 'HPC', 'Edge Computing'].map(tag => (
-                        <span key={tag} className="px-2.5 py-1 bg-white border border-[#4B286D]/10 rounded-full text-[10px] font-medium text-[#4B286D]">
+                        <span key={tag} className="px-4 py-2 bg-white/80 backdrop-blur-sm border border-[#4B286D]/10 rounded-2xl text-[10px] font-bold text-[#4B286D] shadow-sm">
                           {tag}
                         </span>
                       ))}
@@ -853,7 +1240,7 @@ export default function App() {
             <motion.div 
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
-              className="w-full max-w-4xl mb-12 rounded-3xl overflow-hidden shadow-2xl border border-slate-200 relative group h-[350px]"
+              className="w-full max-w-4xl mb-12 rounded-[2.5rem] overflow-hidden shadow-[0_20px_50px_rgba(75,40,109,0.2)] border border-white/20 relative group h-[350px]"
               style={{
                 backgroundImage: 'url("https://images.unsplash.com/photo-1544197150-b99a580bb7a8?auto=format&fit=crop&w=2000&q=80")',
                 backgroundSize: 'cover',
@@ -884,8 +1271,8 @@ export default function App() {
                 { icon: <BarChart3 className="w-9 h-9" />, title: 'Competitor Tracking', desc: 'Monitor competitor strategic moves' },
                 { icon: <RefreshCw className="w-9 h-9" />, title: 'Real-time Updates', desc: 'Stay ahead with live updates and insights' },
               ].map((item, i) => (
-                <div key={i} className="bg-white p-6 rounded-2xl border border-[#E9ECEF] shadow-sm flex flex-col items-center text-center">
-                  <div className="w-16 h-16 bg-slate-50 rounded-2xl flex items-center justify-center text-[#4B286D] mb-4">
+                <div key={i} className="bg-white/80 backdrop-blur-lg p-6 rounded-3xl border border-white/60 shadow-[0_8px_30px_rgb(0,0,0,0.04)] hover:shadow-[0_8px_30px_rgb(75,40,109,0.08)] hover:-translate-y-1 transition-all duration-300 flex flex-col items-center text-center">
+                  <div className="w-16 h-16 bg-gradient-to-br from-slate-50 to-slate-100 rounded-2xl flex items-center justify-center text-[#4B286D] mb-4 shadow-inner border border-white">
                     {item.icon}
                   </div>
                   <h3 className="text-base font-bold mb-1">{item.title}</h3>
@@ -896,6 +1283,7 @@ export default function App() {
           </div>
         )}
       </main>
+
       <ChatBot competitors={competitors} marketInsights={marketInsights} />
     </div>
     </>

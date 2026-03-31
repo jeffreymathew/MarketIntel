@@ -8,6 +8,12 @@ export interface Competitor {
   head_office?: string;
   website?: string;
   description?: string;
+  location?: string;
+  size?: string;
+  gpu_type?: string;
+  power_capacity?: string;
+  customers?: string;
+  partnerships?: string;
   created_at: string;
 }
 

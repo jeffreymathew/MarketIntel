@@ -56,9 +56,34 @@ CRITICAL: The "url" field MUST be the direct, specific URL to the news article o
 
 export async function generateMarketSummary(competitorName: string, insights: any[]) {
   const context = insights.map(i => `- ${i.title}: ${i.summary}`).join("\n");
+  const prompt = `Based on the following recent news and general knowledge for ${competitorName}, provide a comprehensive Executive Summary. 
+Focus strictly on their AI Infrastructure and Cloud product offerings.
+
+The report MUST be structured exactly as follows:
+
+1. **Company Overview**: A high-level overview of the company with a specific focus on their AI Infrastructure product offering and value proposition.
+2. **Technical Infrastructure**:
+    - **Locations**: Key datacentre locations and regional footprint.
+    - **Size and Scale**: Overall capacity, floor space, and expansion plans.
+    - **GPU & Compute Infrastructure**: Specific hardware details (e.g., NVIDIA H100, B200 deployment), interconnects, and specialized AI compute clusters.
+    - **Power & Cooling**: Total power capacity, PUE (Power Usage Effectiveness), and advanced cooling technologies used (e.g., liquid cooling).
+3. **Business & Financials**: Detailed analysis of funding rounds, major investments, revenue performance, financial forecasts, and key strategic partnerships.
+4. **Market Positioning**: How they compare to peers in the AI infrastructure space and their unique competitive advantages.
+5. **Key Recent Activities**: A summary of the most significant announcements, product launches, or milestones from the last 6-12 months.
+6. **SWOT Analysis**: A professional markdown table or bulleted list covering:
+    - **Strengths**
+    - **Weaknesses**
+    - **Opportunities**
+    - **Threats**
+
+Context from recent news:
+${context}
+
+Format the output as a professional markdown report with clear headings and sub-headings. Use bold text for emphasis. Do NOT use <br> tags anywhere in your output.`;
+
   const response = await ai.models.generateContent({
     model: "gemini-3-flash-preview",
-    contents: `Based on the following recent news for ${competitorName}, provide a high-level executive summary of their current market position and key risks/opportunities:\n\n${context}`,
+    contents: prompt,
   });
 
   return response.text;
@@ -73,7 +98,7 @@ Focus ONLY on news related to 'AI infrastructure', 'Sovereign Cloud', or 'AI Dat
 Keywords to focus on: "${region}", "${keywords}".
 Include specific data points, statistics, government investments, and major corporate announcements.
 Prioritize developments from 2025 and 2026.
-Format the output as a professional markdown report with clear headings, bullet points, and bold text for emphasis. Do not use generic filler.
+Format the output as a professional markdown report with clear headings, bullet points, and bold text for emphasis. Do not use generic filler. Do NOT use <br> tags anywhere in your output.
 IMPORTANT: Always provide a section "Sources" at the very bottom, with markdown hyperlinks to each of the specific articles you referenced. Ensure these are direct links to the articles, not just the parent website.`,
     config: {
       tools: [{ googleSearch: {} }],
@@ -100,7 +125,7 @@ ${insightsContext}
 USER QUESTION:
 ${message}
 
-Provide a professional, concise, and data-driven response. Use Google Search if you need more recent information than what's provided in the context.
+Provide a professional, concise, and data-driven response. Use Google Search if you need more recent information than what's provided in the context. Do NOT use <br> tags anywhere in your output.
 CRITICAL: If you use Google Search to find information, you MUST cite your sources at the end of your response with direct, specific links to the articles you found.`,
     config: {
       tools: [{ googleSearch: {} }],
@@ -114,9 +139,10 @@ export async function generateGlobalSummary(competitors: string[], marketInsight
   const keywords = AI_KEYWORDS.join(' OR ');
   const marketContext = marketInsights.map(i => `- [${i.region}] ${i.title}: ${i.summary}`).join("\n");
   const compList = competitors.join(", ");
+  const currentDate = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
   
   const response = await ai.models.generateContent({
-    model: "gemini-3-flash-preview",
+    model: "gemini-3.1-pro-preview",
     contents: `Provide a comprehensive "Weekly Market Overview" report for the last 7 days.
     
 Focus ONLY on news related to 'AI infrastructure', 'Sovereign Cloud', or 'AI Datacentres' within the last 7 days.
@@ -132,19 +158,124 @@ KEYWORDS TO FOCUS ON: ${keywords}
 RELEVANT DEVELOPMENTS FROM THE LAST 7 DAYS:
 ${marketContext}
 
-Your report MUST include:
-1. **Executive Summary**: A high-level synthesis of the AI and Cloud market landscape over the past 7 days, strictly focusing on AI infrastructure, Sovereign Cloud, and AI Datacentres.
-2. **Key News & Press Releases**: Major announcements from the tracked competitors and the broader industry within the last week.
-3. **Partnership Announcements (Tabular Format)**: A markdown table detailing significant strategic alliances announced this week, including Partner A, Partner B, and the Strategic Objective.
-4. **Data Points & Statistics**: Specific metrics, investment figures, or performance data reported in the last 7 days.
-5. **Comparison Tables**: Comprehensive markdown tables comparing competitor moves, product launches, or regional investments across the tracked entities based on this week's news.
-6. **Market Outlook**: Forward-looking insights based on the week's developments.
+Your report MUST be structured EXACTLY as follows, using these exact headings and emojis:
 
-Format the output as a professional markdown report with clear headings and bold text. **CRITICAL: All partnership announcements and competitive comparisons MUST be presented in well-structured markdown tables.** Use Google Search to find specific details for the last 7 days and the specified keywords if the provided context is insufficient.`,
+# SAIF Weekly Market Overview: Executive Brief
+
+**Date:** ${currentDate} | **Issue:** [Generate an issue number, e.g., Vol 1. Issue 4]
+**Prepared by:** TELUS MarketIntel
+
+---
+
+## 🚀 Executive Summary
+[Provide a 3-5 sentence high-level overview of the week. Focus on the single most important trend (e.g., a shift in power dynamics, a major architectural breakthrough, or a macro-economic move) and its immediate impact on the industry.]
+
+---
+
+## 🕵️ Competitor Intelligence
+*   **[Competitor Name]**: [Summarize recent strategic moves, product pivots, or market share changes.]
+*   **[Competitor Name]**: [Note any changes in their supply chain, pricing, or talent acquisition.]
+*   **Market Positioning**: [Briefly contrast how the "Big Three" or "Challengers" are currently stacking up against one another.]
+
+---
+
+## 📰 Key News & Press Releases
+*   **[Headline 1]**: [Brief summary of the news and why it matters to infrastructure stakeholders.]
+*   **[Headline 2]**: [Brief summary of the news and why it matters to infrastructure stakeholders.]
+*   **Regulatory/Macro News**: [Note any government interventions, export controls, or energy policy changes.]
+
+---
+
+## 🤝 Partnership Announcements
+*   **[Company A] & [Company B]**: [Details of the collaboration. Focus on whether this is a "Go-to-Market" partnership or a technical integration.]
+*   **Partnerships and Alliances**: [Note any new agreements between organizations, chipmakers, OEM/ODMs, and power providers.]
+
+---
+
+## 👤 Customer Announcements
+*   **[Customer Name/Sector]**: [Who is buying? Mention significant new deployments, "AI Factory" wins, or high-profile migrations.]
+*   **Adoption Trends**: [Are customers moving toward on-prem, sovereign clouds, or hybrid models?]
+
+---
+
+## 🛠️ Technical Information
+*   **Hardware Evolution**: [Updates on NVIDIA updates, GPU/TPU/NPU architectures, rack-level power density, or cooling innovations.]
+*   **Software & Networking**: [Updates on interconnects (Infiniband vs. Ethernet), software stacks, or orchestration layers.]
+
+---
+
+## 🔮 Future-Looking Market Outlook
+[Provide a forward-looking "Thesis of the Week." What should executives prepare for in the next 3–6 months? Identify an "under-the-radar" risk or opportunity that hasn't hit the mainstream news yet.]
+
+Format the output as a professional markdown report. Do NOT use <br> tags anywhere in your output. Use Google Search to find specific details for the last 7 days and the specified keywords if the provided context is insufficient.`,
     config: {
       tools: [{ googleSearch: {} }],
     }
   });
 
   return response.text;
+}
+
+export async function generateCompetitorProfile(name: string, domain?: string) {
+  const prompt = `Generate a detailed profile for the company: "${name}"${domain ? ` (Domain: ${domain})` : ''}.
+Focus on their AI infrastructure and cloud capabilities.
+CRITICAL: Keep all data points extremely concise, punchy, and less wordy (e.g., "10,000+ Employees", "NVIDIA H100, A100", "500MW+"). Do not use full sentences for data points.
+Include details about:
+- Location (Headquarters and key datacentre locations. Keep it short, e.g., "San Francisco, CA")
+- Size (Company size, employees, or datacentre footprint. Max 3-5 words.)
+- GPU Type (Specific GPUs they use/offer. Max 3-5 words.)
+- Power Capacity (Total power capacity. Max 3-5 words.)
+- Customers (Key enterprise/government customers. Comma-separated list, max 5 items.)
+- Partnerships (Major strategic partnerships. Comma-separated list, max 5 items.)
+- A succinct, 1-2 sentence professional description.
+- Their official website URL.
+- Their official logo URL (Use https://img.logo.dev/companydomain.com?token=pk_YOUR_TOKEN if possible, replacing companydomain.com with their domain).
+
+Return the data in the following JSON format:
+{
+  "location": "string",
+  "size": "string",
+  "gpu_type": "string",
+  "power_capacity": "string",
+  "customers": "string",
+  "partnerships": "string",
+  "description": "string",
+  "head_office": "string",
+  "website": "string",
+  "logo_url": "string",
+  "domain": "string"
+}`;
+
+  const response = await ai.models.generateContent({
+    model: "gemini-3-flash-preview",
+    contents: prompt,
+    config: {
+      tools: [{ googleSearch: {} }],
+      responseMimeType: "application/json",
+      responseSchema: {
+        type: Type.OBJECT,
+        properties: {
+          location: { type: Type.STRING },
+          size: { type: Type.STRING },
+          gpu_type: { type: Type.STRING },
+          power_capacity: { type: Type.STRING },
+          customers: { type: Type.STRING },
+          partnerships: { type: Type.STRING },
+          description: { type: Type.STRING },
+          head_office: { type: Type.STRING },
+          website: { type: Type.STRING },
+          logo_url: { type: Type.STRING },
+          domain: { type: Type.STRING }
+        },
+        required: ["location", "size", "gpu_type", "power_capacity", "customers", "partnerships", "description", "head_office", "website", "logo_url", "domain"]
+      }
+    }
+  });
+
+  try {
+    return JSON.parse(response.text || "{}");
+  } catch (e) {
+    console.error("Failed to parse competitor profile", e);
+    return null;
+  }
 }

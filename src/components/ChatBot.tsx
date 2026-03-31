@@ -107,10 +107,11 @@ export default function ChatBot({ competitors, marketInsights }: ChatBotProps) {
             initial={{ opacity: 0, y: 20, scale: 0.95 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 20, scale: 0.95 }}
-            className="mb-4 w-[400px] max-w-[calc(100vw-48px)] h-[600px] max-h-[calc(100vh-120px)] bg-white rounded-2xl shadow-2xl border border-slate-200 flex flex-col overflow-hidden"
+            className="mb-4 w-[400px] max-w-[calc(100vw-48px)] h-[600px] max-h-[calc(100vh-120px)] bg-white/90 backdrop-blur-2xl rounded-3xl shadow-[0_20px_40px_rgba(0,0,0,0.12)] border border-white/50 flex flex-col overflow-hidden"
           >
             {/* Header */}
-            <div className="p-4 bg-[#4B286D] text-white flex items-center justify-between">
+            <div className="p-4 bg-gradient-to-r from-[#4B286D] to-[#6a399c] text-white flex items-center justify-between shadow-md relative overflow-hidden">
+              <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -mr-16 -mt-16 blur-2xl pointer-events-none" />
               <div className="flex items-center gap-2">
                 <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-400 via-purple-400 to-pink-400 flex items-center justify-center shadow-lg">
                   <GeminiIcon className="w-5 h-5 text-white" />
@@ -132,7 +133,7 @@ export default function ChatBot({ competitors, marketInsights }: ChatBotProps) {
             </div>
 
             {/* Messages */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-slate-50">
+            <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-slate-50/50">
               {messages.map((msg) => (
                 <div 
                   key={msg.id}
@@ -146,12 +147,12 @@ export default function ChatBot({ competitors, marketInsights }: ChatBotProps) {
                     </div>
                     <div className={`p-3 rounded-2xl text-sm ${
                       msg.role === 'user' 
-                        ? 'bg-[#4B286D] text-white rounded-tr-none' 
-                        : 'bg-white border border-slate-200 text-slate-800 rounded-tl-none shadow-sm'
+                        ? 'bg-gradient-to-br from-[#4B286D] to-[#5c3185] text-white rounded-tr-none shadow-md' 
+                        : 'bg-white/80 backdrop-blur-sm border border-white/60 text-slate-800 rounded-tl-none shadow-sm'
                     }`}>
                       <div className="prose prose-sm max-w-none prose-p:leading-relaxed prose-pre:bg-slate-800 prose-pre:text-slate-100">
                         <Markdown>
-                          {msg.content}
+                          {msg.content.replace(/<br\s*\/?>/gi, ' ')}
                         </Markdown>
                       </div>
                     </div>
@@ -164,7 +165,7 @@ export default function ChatBot({ competitors, marketInsights }: ChatBotProps) {
                     <div className="w-8 h-8 rounded-full bg-white border border-slate-200 text-slate-600 flex items-center justify-center">
                       <GeminiIcon className="w-5 h-5 text-purple-500 animate-pulse" />
                     </div>
-                    <div className="p-3 bg-white border border-slate-200 rounded-2xl rounded-tl-none shadow-sm flex items-center gap-2">
+                    <div className="p-3 bg-white/80 backdrop-blur-sm border border-white/60 rounded-2xl rounded-tl-none shadow-sm flex items-center gap-2">
                       <Loader2 className="w-4 h-4 animate-spin text-[#4B286D]" />
                       <span className="text-xs text-slate-500 italic">Thinking...</span>
                     </div>
@@ -175,7 +176,7 @@ export default function ChatBot({ competitors, marketInsights }: ChatBotProps) {
             </div>
 
             {/* Input */}
-            <div className="p-4 bg-white border-t border-slate-100">
+            <div className="p-4 bg-white/50 backdrop-blur-md border-t border-white/40">
               <div className="relative">
                 <input
                   type="text"
@@ -183,12 +184,12 @@ export default function ChatBot({ competitors, marketInsights }: ChatBotProps) {
                   onChange={(e) => setInput(e.target.value)}
                   onKeyPress={(e) => e.key === 'Enter' && handleSend()}
                   placeholder="Ask about competitors, market trends..."
-                  className="w-full pl-4 pr-12 py-3 bg-slate-100 border-none rounded-xl text-sm focus:ring-2 focus:ring-[#4B286D] transition-all"
+                  className="w-full pl-4 pr-12 py-3 bg-white/80 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-[#4B286D] transition-all shadow-inner"
                 />
                 <button
                   onClick={handleSend}
                   disabled={!input.trim() || isLoading}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 p-2 bg-[#4B286D] text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-all hover:bg-[#3a1f54]"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 p-2 bg-gradient-to-r from-[#4B286D] to-[#6a399c] text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-all hover:shadow-md hover:-translate-y-0.5"
                 >
                   <Send className="w-4 h-4" />
                 </button>
@@ -205,10 +206,10 @@ export default function ChatBot({ competitors, marketInsights }: ChatBotProps) {
         whileHover={{ scale: 1.05 }}
         whileTap={{ scale: 0.95 }}
         onClick={() => setIsOpen(!isOpen)}
-        className={`shadow-2xl flex items-center justify-center transition-all gap-2 ${
+        className={`shadow-2xl flex items-center justify-center transition-all gap-1.5 ${
           isOpen 
-            ? 'w-14 h-14 rounded-full bg-white text-[#4B286D] rotate-90' 
-            : 'px-6 h-14 rounded-full bg-[#4B286D] text-white'
+            ? 'w-14 h-14 rounded-full bg-white text-[#4B286D] rotate-90 shadow-[0_8px_20px_rgba(0,0,0,0.15)]' 
+            : 'pl-5 pr-7 h-14 rounded-full bg-gradient-to-r from-[#4B286D] to-[#6a399c] text-white shadow-[0_8px_20px_rgba(75,40,109,0.3)] hover:shadow-[0_8px_25px_rgba(75,40,109,0.4)] hover:-translate-y-0.5'
         }`}
       >
         {isOpen ? (
@@ -216,7 +217,7 @@ export default function ChatBot({ competitors, marketInsights }: ChatBotProps) {
         ) : (
           <>
             <GeminiIcon className="w-6 h-6" />
-            <span className="font-bold text-sm whitespace-nowrap">Ask MarketIntel AI</span>
+            <span className="font-bold text-sm whitespace-nowrap leading-none mt-[1px]">Ask AI</span>
           </>
         )}
       </motion.button>

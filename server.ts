@@ -3,6 +3,7 @@ import { createServer as createViteServer } from "vite";
 import Database from "better-sqlite3";
 import path from "path";
 import { fileURLToPath } from "url";
+import cookieParser from "cookie-parser";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -21,6 +22,12 @@ db.exec(`
     head_office TEXT,
     website TEXT,
     description TEXT,
+    location TEXT,
+    size TEXT,
+    gpu_type TEXT,
+    power_capacity TEXT,
+    customers TEXT,
+    partnerships TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
 
@@ -187,7 +194,7 @@ if (!hasExecSummary) {
 }
 
 // Migration: Add new columns if they don't exist
-['logo_url', 'head_office', 'website', 'description'].forEach(colName => {
+['logo_url', 'head_office', 'website', 'description', 'location', 'size', 'gpu_type', 'power_capacity', 'customers', 'partnerships'].forEach(colName => {
   const hasCol = compTableInfo.some(col => col.name === colName);
   if (!hasCol) {
     db.exec(`ALTER TABLE competitors ADD COLUMN ${colName} TEXT`);
@@ -199,6 +206,125 @@ async function startServer() {
   const PORT = 3000;
 
   app.use(express.json());
+  app.use(cookieParser());
+
+  // Google OAuth Routes
+  app.get("/api/auth/google/url", (req, res) => {
+    const redirectUri = req.query.redirectUri as string;
+    if (!redirectUri) {
+      return res.status(400).json({ error: "redirectUri is required" });
+    }
+    const params = new URLSearchParams({
+      client_id: process.env.OAUTH_CLIENT_ID || "",
+      redirect_uri: redirectUri,
+      response_type: "code",
+      scope: "https://www.googleapis.com/auth/drive.file",
+      access_type: "offline",
+      prompt: "consent",
+      state: redirectUri,
+    });
+    res.json({ url: `https://accounts.google.com/o/oauth2/v2/auth?${params}` });
+  });
+
+  app.get(["/auth/callback", "/auth/callback/"], async (req, res) => {
+    const { code, state } = req.query;
+    const redirectUri = state as string;
+
+    try {
+      const tokenResponse = await fetch("https://oauth2.googleapis.com/token", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          client_id: process.env.OAUTH_CLIENT_ID || "",
+          client_secret: process.env.OAUTH_CLIENT_SECRET || "",
+          code: code as string,
+          grant_type: "authorization_code",
+          redirect_uri: redirectUri,
+        }),
+      });
+
+      const tokenData = await tokenResponse.json();
+
+      if (tokenData.access_token) {
+        res.cookie("google_access_token", tokenData.access_token, {
+          secure: true,
+          sameSite: "none",
+          httpOnly: true,
+          maxAge: tokenData.expires_in * 1000,
+        });
+      }
+
+      res.send(`
+        <html>
+          <body>
+            <script>
+              if (window.opener) {
+                window.opener.postMessage({ type: 'OAUTH_AUTH_SUCCESS' }, '*');
+                window.close();
+              } else {
+                window.location.href = '/';
+              }
+            </script>
+            <p>Authentication successful. This window should close automatically.</p>
+          </body>
+        </html>
+      `);
+    } catch (error) {
+      console.error("OAuth error:", error);
+      res.status(500).send("Authentication failed");
+    }
+  });
+
+  app.post("/api/export/google-doc", async (req, res) => {
+    const token = req.cookies.google_access_token;
+    if (!token) {
+      return res.status(401).json({ error: "Not authenticated" });
+    }
+
+    const { html, title } = req.body;
+
+    try {
+      const boundary = "-------314159265358979323846";
+      const delimiter = `\r\n--${boundary}\r\n`;
+      const closeDelimiter = `\r\n--${boundary}--`;
+
+      const metadata = {
+        name: title || "Weekly Market Overview",
+        mimeType: "application/vnd.google-apps.document",
+      };
+
+      const multipartRequestBody =
+        delimiter +
+        "Content-Type: application/json\r\n\r\n" +
+        JSON.stringify(metadata) +
+        delimiter +
+        "Content-Type: text/html\r\n\r\n" +
+        html +
+        closeDelimiter;
+
+      const response = await fetch(
+        "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart",
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": `multipart/related; boundary=${boundary}`,
+          },
+          body: multipartRequestBody,
+        }
+      );
+
+      const data = await response.json();
+      if (!response.ok) {
+        return res.status(response.status).json(data);
+      }
+
+      res.json({ url: `https://docs.google.com/document/d/${data.id}/edit` });
+    } catch (error: any) {
+      console.error("Export error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
 
   // API Routes
   app.get("/api/competitors", (req, res) => {
@@ -255,6 +381,30 @@ async function startServer() {
     const { executive_summary } = req.body;
     try {
       db.prepare("UPDATE competitors SET executive_summary = ? WHERE id = ?").run(executive_summary, req.params.id);
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.patch("/api/competitors/:id/profile", (req, res) => {
+    const { location, size, gpu_type, power_capacity, customers, partnerships, description, head_office, website, logo_url, domain } = req.body;
+    try {
+      db.prepare(`
+        UPDATE competitors 
+        SET location = COALESCE(?, location),
+            size = COALESCE(?, size),
+            gpu_type = COALESCE(?, gpu_type),
+            power_capacity = COALESCE(?, power_capacity),
+            customers = COALESCE(?, customers),
+            partnerships = COALESCE(?, partnerships),
+            description = COALESCE(?, description),
+            head_office = COALESCE(?, head_office),
+            website = COALESCE(?, website),
+            logo_url = COALESCE(?, logo_url),
+            domain = COALESCE(?, domain)
+        WHERE id = ?
+      `).run(location, size, gpu_type, power_capacity, customers, partnerships, description, head_office, website, logo_url, domain, req.params.id);
       res.json({ success: true });
     } catch (error: any) {
       res.status(500).json({ error: error.message });
