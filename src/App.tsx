@@ -14,6 +14,7 @@ import {
   AlertCircle,
   Loader2,
   Map,
+  Leaf,
   Sparkles,
   Home,
   FileDown,
@@ -97,6 +98,9 @@ export default function App() {
   const [marketInsights, setMarketInsights] = useState<Insight[]>([]);
   const [marketRegion, setMarketRegion] = useState<string>('canada');
   const summaryRef = useRef<HTMLDivElement>(null);
+
+  const isBackgroundRefreshingInsightsRef = useRef(false);
+  const isBackgroundRefreshingMarketRef = useRef(false);
 
   const [isExporting, setIsExporting] = useState(false);
 
@@ -211,6 +215,12 @@ export default function App() {
   const refreshGlobalSummary = async () => {
     setRefreshing(true);
     try {
+      // Ensure we have the latest insights for Canada and Global
+      await Promise.all([
+        refreshMarketInsights('canada', true),
+        refreshMarketInsights('global', true)
+      ]);
+
       // Fetch both Canada and Global insights for a comprehensive overview
       const [canadaRes, globalRes] = await Promise.all([
         fetch('/api/market-insights?region=canada'),
@@ -300,9 +310,9 @@ export default function App() {
       }) : [];
       setMarketInsights(sortedData);
       
-      // Auto-refresh if empty
-      if (sortedData.length === 0 && !silent) {
-        refreshMarketInsights(region);
+      // Auto-refresh in background
+      if (!silent) {
+        refreshMarketInsights(region, true);
       }
     } catch (error) {
       console.error("Failed to fetch market insights", error);
@@ -324,10 +334,10 @@ export default function App() {
       }) : [];
       setInsights(sortedData);
 
-      // Auto-refresh if empty
-      if (sortedData.length === 0 && !silent) {
+      // Auto-refresh in background
+      if (!silent) {
         const comp = competitors.find(c => c.id === id);
-        if (comp) refreshInsights(comp);
+        if (comp) refreshInsights(comp, true);
       }
     } catch (error) {
       console.error("Failed to fetch insights", error);
@@ -395,10 +405,15 @@ export default function App() {
     }
   };
 
-  const refreshInsights = async (competitorOverride?: Competitor) => {
+  const refreshInsights = async (competitorOverride?: Competitor, silent = false) => {
     const target = competitorOverride || selectedCompetitor;
     if (!target) return;
-    setRefreshing(true);
+    if (silent) {
+      if (isBackgroundRefreshingInsightsRef.current) return;
+      isBackgroundRefreshingInsightsRef.current = true;
+    } else {
+      setRefreshing(true);
+    }
     try {
       // Fetch news results
       const results = await searchMarketInsights(target.name, target.domain);
@@ -454,13 +469,22 @@ export default function App() {
     } catch (error) {
       console.error("Refresh failed", error);
     } finally {
-      setRefreshing(false);
+      if (silent) {
+        isBackgroundRefreshingInsightsRef.current = false;
+      } else {
+        setRefreshing(false);
+      }
     }
   };
 
-  const refreshMarketInsights = async (regionOverride?: string) => {
+  const refreshMarketInsights = async (regionOverride?: string, silent = false) => {
     const targetRegion = regionOverride || marketRegion;
-    setRefreshing(true);
+    if (silent) {
+      if (isBackgroundRefreshingMarketRef.current) return;
+      isBackgroundRefreshingMarketRef.current = true;
+    } else {
+      setRefreshing(true);
+    }
     try {
       const marketName = markets.find(m => m.region_code === targetRegion)?.name || targetRegion;
       const query = `${marketName} AI infrastructure, Sovereign Cloud, AI Datacentres news last 7 days`;
@@ -477,7 +501,11 @@ export default function App() {
     } catch (error) {
       console.error("Refresh failed", error);
     } finally {
-      setRefreshing(false);
+      if (silent) {
+        isBackgroundRefreshingMarketRef.current = false;
+      } else {
+        setRefreshing(false);
+      }
     }
   };
 
@@ -497,7 +525,10 @@ export default function App() {
         <div className="absolute top-0 right-0 w-64 h-64 bg-white/5 rounded-full -mr-32 -mt-32 blur-3xl pointer-events-none" />
         <div className="absolute bottom-0 left-0 w-48 h-48 bg-purple-500/10 rounded-full -ml-24 -mb-24 blur-2xl pointer-events-none" />
         
-        <div className="p-6 border-b border-white/10 flex items-center justify-between relative z-10">
+        <div className="p-6 border-b border-white/10 flex items-center gap-3 relative z-10">
+          <div className="w-10 h-10 bg-white rounded-lg p-1.5 flex items-center justify-center shadow-sm">
+            <img src="/Logos/telus.png" alt="Telus Logo" className="w-full h-full object-contain" />
+          </div>
           <div className="flex flex-col">
             <h1 className="text-xs font-bold tracking-widest text-[#BEF264] uppercase opacity-80">TELUS AI Factory</h1>
             <h1 className="text-xl font-black tracking-tight text-white uppercase leading-none">MarketIntel</h1>
@@ -513,7 +544,7 @@ export default function App() {
             }`}
           >
             <div className="flex items-center gap-3">
-              <BarChart3 className={`w-4 h-4 ${currentView === 'global_summary' ? 'text-[#66CC00]' : 'text-white/50'}`} />
+              <Globe className={`w-4 h-4 ${currentView === 'global_summary' ? 'text-[#66CC00]' : 'text-white/50'}`} />
               <span className="text-sm font-medium">Weekly Market Overview</span>
             </div>
           </div>
@@ -552,8 +583,8 @@ export default function App() {
               }`}
             >
               <div className="flex items-center gap-3">
-                <Globe className={`w-4 h-4 ${currentView === 'market_intelligence' && marketRegion === m.region_code ? 'text-[#66CC00]' : 'text-white/50'}`} />
-                <span className="text-sm font-medium">News & Updates - {m.name}</span>
+                <BarChart3 className={`w-4 h-4 ${currentView === 'market_intelligence' && marketRegion === m.region_code ? 'text-[#66CC00]' : 'text-white/50'}`} />
+                <span className="text-sm font-medium">{m.name}</span>
               </div>
               <button 
                 onClick={(e) => { e.stopPropagation(); deleteMarket(m.id); }}
@@ -598,7 +629,7 @@ export default function App() {
               }`}
             >
               <div className="flex items-center gap-3">
-                <BarChart3 className={`w-4 h-4 ${currentView === 'competitor' && selectedCompetitor?.id === c.id ? 'text-[#66CC00]' : 'text-white/50'}`} />
+                <Building2 className={`w-4 h-4 ${currentView === 'competitor' && selectedCompetitor?.id === c.id ? 'text-[#66CC00]' : 'text-white/50'}`} />
                 <span className="text-sm font-medium">{c.name}</span>
               </div>
               <button 
@@ -697,8 +728,8 @@ export default function App() {
               </div>
             </header>
 
-            <div className="flex-1 overflow-y-auto p-8">
-              <div className="flex flex-col xl:flex-row gap-8 max-w-7xl mx-auto">
+            <div className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8">
+              <div className="flex flex-col lg:flex-row gap-8 max-w-[1600px] mx-auto">
                 {/* Main Content (Left) */}
                 <div className="flex-1 space-y-8">
                   {(loading || refreshing) && !globalSummary ? (
@@ -728,15 +759,15 @@ export default function App() {
                 </div>
 
                 {/* Right Panel (Infographic) */}
-                <div className="w-full xl:w-96 flex-shrink-0 space-y-6">
+                <div className="w-full lg:w-80 xl:w-96 flex-shrink-0 space-y-6">
                   <div className="bg-gradient-to-br from-[#4B286D] to-[#2A163D] rounded-3xl p-6 text-white shadow-xl relative overflow-hidden">
                     <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full -mr-16 -mt-16 blur-2xl" />
                     <div className="absolute bottom-0 left-0 w-24 h-24 bg-white/5 rounded-full -ml-12 -mb-12 blur-xl" />
                     
                     <div className="relative z-10">
                       <h3 className="text-xs font-black tracking-widest text-[#BEF264] uppercase mb-6 flex items-center gap-2">
-                        <Map className="w-4 h-4" />
-                        Canadian Landscape
+                        <Leaf className="w-4 h-4" />
+                        Canada Market At A Glance
                       </h3>
                       
                       <div className="space-y-5">
@@ -757,6 +788,20 @@ export default function App() {
                           <div className="flex items-end gap-2">
                             <span className="text-3xl font-black tracking-tighter">$2.4B</span>
                             <span className="text-white/80 text-xs font-medium mb-1.5">CAD</span>
+                          </div>
+                        </div>
+
+                        <div className="h-px w-full bg-white/10" />
+
+                        {/* Key Players */}
+                        <div>
+                          <p className="text-white/60 text-[10px] uppercase tracking-wider font-bold mb-3">Key Ecosystem Players</p>
+                          <div className="flex flex-wrap gap-2">
+                            {['TELUS', 'Bell', 'Cohere', 'Hypertec', 'ThinkOn'].map(player => (
+                              <span key={player} className="px-2.5 py-1 bg-white/10 rounded-lg text-[10px] font-bold border border-white/5">
+                                {player}
+                              </span>
+                            ))}
                           </div>
                         </div>
 
@@ -783,13 +828,27 @@ export default function App() {
 
                         <div className="h-px w-full bg-white/10" />
 
-                        {/* Key Players */}
+                        {/* Industry Use Cases */}
                         <div>
-                          <p className="text-white/60 text-[10px] uppercase tracking-wider font-bold mb-3">Key Ecosystem Players</p>
+                          <p className="text-white/60 text-[10px] uppercase tracking-wider font-bold mb-3">Industry Use Cases</p>
                           <div className="flex flex-wrap gap-2">
-                            {['TELUS', 'Cohere', 'Tenstorrent', 'Sanctuary AI', 'Radical AI', 'Mila'].map(player => (
-                              <span key={player} className="px-2.5 py-1 bg-white/10 rounded-lg text-[10px] font-bold border border-white/5">
-                                {player}
+                            {['Healthcare', 'Financial Services', 'Public Sector', 'Telecommunications', 'Retail'].map(useCase => (
+                              <span key={useCase} className="px-2.5 py-1 bg-white/10 rounded-lg text-[10px] font-bold border border-white/5">
+                                {useCase}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+
+                        <div className="h-px w-full bg-white/10" />
+
+                        {/* Academic & Research */}
+                        <div>
+                          <p className="text-white/60 text-[10px] uppercase tracking-wider font-bold mb-3">Academic & Research</p>
+                          <div className="flex flex-wrap gap-2">
+                            {['Mila', 'Vector Institute', 'Amii', 'UofT', 'McGill'].map(inst => (
+                              <span key={inst} className="px-2.5 py-1 bg-white/10 rounded-lg text-[10px] font-bold border border-white/5">
+                                {inst}
                               </span>
                             ))}
                           </div>
@@ -805,7 +864,7 @@ export default function App() {
                     <div className="relative z-10">
                       <h3 className="text-xs font-black tracking-widest text-[#BEF264] uppercase mb-6 flex items-center gap-2">
                         <Activity className="w-4 h-4" />
-                        Market at a Glance
+                        Global Market At A Glance
                       </h3>
                       
                       <div className="space-y-6">
@@ -905,10 +964,7 @@ export default function App() {
           <>
             <header className="h-16 border-b border-white/60 bg-white/40 backdrop-blur-md flex items-center justify-between px-8 shadow-[0_4px_20px_rgba(0,0,0,0.01)]">
               <div className="flex items-center gap-4">
-                <h2 className="text-lg font-semibold">News & Updates - {markets.find(m => m.region_code === marketRegion)?.name || marketRegion}</h2>
-                <span className="px-2 py-0.5 bg-slate-100 text-slate-500 text-[10px] font-bold rounded uppercase tracking-wider">
-                  {markets.find(m => m.region_code === marketRegion)?.name || marketRegion} AI & Cloud
-                </span>
+                <h2 className="text-lg font-semibold">News & Updates</h2>
               </div>
               <div className="flex items-center gap-2">
                 <button 
@@ -925,7 +981,12 @@ export default function App() {
             <div className="flex-1 overflow-y-auto p-8 space-y-8">
               <section>
                 <div className="flex items-center justify-between mb-4">
-                  <h3 className="font-semibold text-slate-900">News & Updates - {markets.find(m => m.region_code === marketRegion)?.name || marketRegion}</h3>
+                  <div className="flex items-center gap-2">
+                    <h3 className="font-semibold text-slate-900">{markets.find(m => m.region_code === marketRegion)?.name || marketRegion}</h3>
+                    <span className="px-2 py-0.5 bg-slate-100 text-slate-500 text-[10px] font-bold rounded uppercase tracking-wider">
+                      {markets.find(m => m.region_code === marketRegion)?.name || marketRegion} AI & Cloud
+                    </span>
+                  </div>
                   <span className="text-xs text-slate-400">{marketInsights.length} reports found</span>
                 </div>
 
@@ -977,7 +1038,7 @@ export default function App() {
           </>
         ) : currentView === 'competitor' && selectedCompetitor ? (
           <>
-            <header className="h-16 border-b border-white/60 bg-white/40 backdrop-blur-md flex items-center justify-between px-8 shadow-[0_4px_20px_rgba(0,0,0,0.01)]">
+            <header className="h-16 border-b border-[#685e91] bg-white/40 backdrop-blur-md flex items-center justify-between px-8 shadow-[0_4px_20px_rgba(0,0,0,0.01)]">
               <div className="flex items-center gap-4">
                 <h2 className="text-lg font-semibold">{selectedCompetitor.name}</h2>
                 <span className="px-2 py-0.5 bg-slate-100 text-slate-500 text-[10px] font-bold rounded uppercase tracking-wider">
@@ -994,9 +1055,9 @@ export default function App() {
               </button>
             </header>
 
-            <div className="flex-1 overflow-y-auto p-8">
-              <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-8">
-                <div className="space-y-8">
+            <div className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8">
+              <div className="flex flex-col lg:flex-row gap-8 max-w-[1600px] mx-auto">
+                <div className="flex-1 space-y-8">
                   {/* Executive Summary */}
                   {refreshing && !executiveSummary ? (
                     <SummarySkeleton />
@@ -1070,146 +1131,196 @@ export default function App() {
                 </div>
 
                 {/* Right Sidebar - Competitor Profile Infographic */}
-                <aside className="space-y-6">
+                <aside className="w-full lg:w-80 xl:w-96 flex-shrink-0 space-y-6">
+                  {/* Card 1: Core Profile & Stats (Purple Gradient) */}
                   <motion.div 
                     initial={{ opacity: 0, x: 20 }}
                     animate={{ opacity: 1, x: 0 }}
-                    className="bg-white/80 backdrop-blur-lg border border-white/60 rounded-3xl overflow-hidden shadow-[0_8px_30px_rgb(0,0,0,0.04)] hover:shadow-[0_8px_30px_rgb(75,40,109,0.08)] transition-all duration-300"
+                    className="bg-gradient-to-br from-[#4B286D] to-[#2A163D] rounded-3xl p-6 text-white shadow-xl relative overflow-hidden"
                   >
-                    {/* Infographic Header */}
-                    <div className="relative p-8 bg-gradient-to-br from-slate-900 to-slate-800 text-white overflow-hidden">
-                      <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full -mr-16 -mt-16 blur-2xl" />
-                      <div className="absolute bottom-0 left-0 w-24 h-24 bg-[#4B286D]/20 rounded-full -ml-12 -mb-12 blur-xl" />
-                      
-                      <div className="relative z-10 flex flex-col items-center text-center">
-                        <div className="w-20 h-20 bg-white/90 backdrop-blur-sm rounded-2xl p-3 flex items-center justify-center shadow-xl mb-4 transform -rotate-3 hover:rotate-0 transition-transform duration-300 border border-white/50">
-                          {selectedCompetitor.logo_url ? (
-                            <img 
-                              src={(() => {
-                                let url = selectedCompetitor.logo_url;
-                                if (url.includes('logo.dev')) {
-                                  const token = import.meta.env.VITE_LOGO_DEV_TOKEN;
-                                  if (token && token !== 'pk_YOUR_TOKEN') {
-                                    if (url.includes('pk_YOUR_TOKEN')) {
-                                      url = url.replace('pk_YOUR_TOKEN', token);
-                                    } else if (!url.includes('token=')) {
-                                      url = url.includes('?') ? `${url}&token=${token}` : `${url}?token=${token}`;
+                    <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full -mr-16 -mt-16 blur-2xl" />
+                    <div className="absolute bottom-0 left-0 w-24 h-24 bg-white/5 rounded-full -ml-12 -mb-12 blur-xl" />
+                    
+                    <div className="relative z-10 flex flex-col items-center text-center mb-6">
+                      <div className="w-20 h-20 bg-white backdrop-blur-sm rounded-2xl p-3 flex items-center justify-center shadow-xl mb-4 transform -rotate-3 hover:rotate-0 transition-transform duration-300 border border-white/20">
+                        {(() => {
+                          const logoMap: Record<string, string> = {
+                            'Bell AI Fabric': '/Logos/bell-canada.png',
+                            'TELUS AI Factory': '/Logos/telus.png',
+                            'Cohere': '/Logos/cohere.png',
+                            'ThinkOn': '/Logos/thinkon-inc.png',
+                            'Hypertec': '/Logos/hypertec-group.png',
+                            'Microsoft': '/Logos/microsoft.png'
+                          };
+                          const localLogo = logoMap[selectedCompetitor.name];
+                          
+                          if (localLogo) {
+                            return (
+                              <img 
+                                src={localLogo}
+                                alt={selectedCompetitor.name} 
+                                className="max-w-full max-h-full object-contain"
+                                referrerPolicy="no-referrer"
+                              />
+                            );
+                          }
+                          
+                          if (selectedCompetitor.logo_url) {
+                            return (
+                              <img 
+                                src={(() => {
+                                  let url = selectedCompetitor.logo_url;
+                                  if (url.includes('logo.dev')) {
+                                    const token = import.meta.env.VITE_LOGO_DEV_TOKEN;
+                                    if (token && token !== 'pk_YOUR_TOKEN') {
+                                      if (url.includes('pk_YOUR_TOKEN')) {
+                                        url = url.replace('pk_YOUR_TOKEN', token);
+                                      } else if (!url.includes('token=')) {
+                                        url = url.includes('?') ? `${url}&token=${token}` : `${url}?token=${token}`;
+                                      }
                                     }
                                   }
-                                }
-                                return url;
-                              })()}
-                              alt={selectedCompetitor.name} 
-                              className="max-w-full max-h-full object-contain"
-                              referrerPolicy="no-referrer"
-                              onError={(e) => {
-                                e.currentTarget.style.display = 'none';
-                                const nextSibling = e.currentTarget.nextElementSibling;
-                                if (nextSibling) {
-                                  nextSibling.classList.remove('hidden');
-                                }
-                              }}
-                            />
-                          ) : (
-                            <Building2 className="w-10 h-10 text-slate-300" />
-                          )}
-                          {selectedCompetitor.logo_url && (
-                            <Building2 className="w-10 h-10 text-slate-300 hidden" />
-                          )}
-                        </div>
-                        <h3 className="text-xl font-black tracking-tight leading-none">{selectedCompetitor.name}</h3>
-                        <div className="mt-2 px-3 py-1 bg-white/10 backdrop-blur-md rounded-full border border-white/10">
-                          <p className="text-[10px] font-bold uppercase tracking-widest text-white/80">{selectedCompetitor.industry}</p>
-                        </div>
+                                  return url;
+                                })()}
+                                alt={selectedCompetitor.name} 
+                                className="max-w-full max-h-full object-contain"
+                                referrerPolicy="no-referrer"
+                                onError={(e) => {
+                                  e.currentTarget.style.display = 'none';
+                                  const nextSibling = e.currentTarget.nextElementSibling;
+                                  if (nextSibling) {
+                                    nextSibling.classList.remove('hidden');
+                                  }
+                                }}
+                              />
+                            );
+                          }
+                          
+                          return <Building2 className="w-10 h-10 text-white/50" />;
+                        })()}
+                        {selectedCompetitor.logo_url && !Object.keys({
+                            'Bell AI Fabric': '/Logos/bell-canada.png',
+                            'TELUS AI Factory': '/Logos/telus.png',
+                            'Cohere': '/Logos/cohere.png',
+                            'ThinkOn': '/Logos/thinkon-inc.png',
+                            'Hypertec': '/Logos/hypertec-group.png',
+                            'Microsoft': '/Logos/microsoft.png'
+                          }).includes(selectedCompetitor.name) && (
+                          <Building2 className="w-10 h-10 text-white/50 hidden" />
+                        )}
+                      </div>
+                      <h3 className="text-xl font-black tracking-tight leading-none">{selectedCompetitor.name}</h3>
+                      <div className="mt-2 px-3 py-1 bg-white/10 backdrop-blur-md rounded-full border border-white/10">
+                        <p className="text-[10px] font-bold uppercase tracking-widest text-[#BEF264]">{selectedCompetitor.industry}</p>
                       </div>
                     </div>
 
                     {/* Infographic Description */}
                     {selectedCompetitor.description && (
-                      <div className="px-8 py-6 bg-slate-50/50 border-b border-slate-100">
-                        <p className="text-xs text-slate-600 leading-relaxed italic text-center">
+                      <div className="mb-6">
+                        <p className="text-xs text-white/80 leading-relaxed italic text-center">
                           "{selectedCompetitor.description}"
                         </p>
                       </div>
                     )}
 
+                    <div className="h-px w-full bg-white/10 mb-6" />
+
                     {/* Infographic Stats Grid */}
-                    <div className="p-4 grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-2 gap-3">
                       {/* Size Stat */}
-                      <div className="p-4 bg-blue-50/50 rounded-2xl border border-blue-100/50 flex flex-col items-center text-center">
-                        <div className="p-2 bg-blue-100 rounded-xl text-blue-600 mb-2">
+                      <div className="p-4 bg-white/5 rounded-2xl border border-white/10 flex flex-col items-center text-center">
+                        <div className="p-2 bg-white/10 rounded-xl text-white mb-2">
                           <Users className="w-4 h-4" />
                         </div>
-                        <p className="text-[9px] font-black text-blue-400 uppercase tracking-tighter">Scale & Size</p>
-                        <p className="text-[11px] font-bold text-slate-800 mt-1">{selectedCompetitor.size || 'N/A'}</p>
+                        <p className="text-[9px] font-black text-white/60 uppercase tracking-tighter">Scale & Size</p>
+                        <p className="text-[11px] font-bold text-white mt-1">{selectedCompetitor.size || 'N/A'}</p>
                       </div>
 
                       {/* Power Stat */}
-                      <div className="p-4 bg-amber-50/50 rounded-2xl border border-amber-100/50 flex flex-col items-center text-center">
-                        <div className="p-2 bg-amber-100 rounded-xl text-amber-600 mb-2">
+                      <div className="p-4 bg-white/5 rounded-2xl border border-white/10 flex flex-col items-center text-center">
+                        <div className="p-2 bg-white/10 rounded-xl text-[#BEF264] mb-2">
                           <Zap className="w-4 h-4" />
                         </div>
-                        <p className="text-[9px] font-black text-amber-400 uppercase tracking-tighter">Power Capacity</p>
-                        <p className="text-[11px] font-bold text-slate-800 mt-1">{selectedCompetitor.power_capacity || 'N/A'}</p>
+                        <p className="text-[9px] font-black text-white/60 uppercase tracking-tighter">Power Capacity</p>
+                        <p className="text-[11px] font-bold text-white mt-1">{selectedCompetitor.power_capacity || 'N/A'}</p>
                       </div>
 
                       {/* GPU Stat */}
-                      <div className="p-4 bg-emerald-50/50 rounded-2xl border border-emerald-100/50 flex flex-col items-center text-center col-span-2">
+                      <div className="p-4 bg-white/5 rounded-2xl border border-white/10 flex flex-col items-center text-center col-span-2">
                         <div className="flex items-center gap-3 w-full">
-                          <div className="p-2 bg-emerald-100 rounded-xl text-emerald-600">
+                          <div className="p-2 bg-white/10 rounded-xl text-[#BEF264]">
                             <Cpu className="w-4 h-4" />
                           </div>
                           <div className="text-left flex-1 min-w-0">
-                            <p className="text-[9px] font-black text-emerald-400 uppercase tracking-tighter">Computing Power (GPU)</p>
-                            <p className="text-xs font-bold text-slate-800 mt-0.5">{selectedCompetitor.gpu_type || 'N/A'}</p>
+                            <p className="text-[9px] font-black text-white/60 uppercase tracking-tighter">Computing Power (GPU)</p>
+                            <p className="text-xs font-bold text-white mt-0.5">{selectedCompetitor.gpu_type || 'N/A'}</p>
                           </div>
                         </div>
                       </div>
 
                       {/* Location Stat */}
-                      <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 flex items-center gap-3 col-span-2">
-                        <div className="p-2 bg-slate-200 rounded-xl text-slate-500">
+                      <div className="p-4 bg-white/5 rounded-2xl border border-white/10 flex items-center gap-3 col-span-2">
+                        <div className="p-2 bg-white/10 rounded-xl text-white">
                           <Map className="w-4 h-4" />
                         </div>
                         <div className="text-left flex-1 min-w-0">
-                          <p className="text-[9px] font-black text-slate-400 uppercase tracking-tighter">Global Footprint</p>
-                          <p className="text-xs font-bold text-slate-800 mt-0.5">{selectedCompetitor.location || selectedCompetitor.head_office || 'N/A'}</p>
+                          <p className="text-[9px] font-black text-white/60 uppercase tracking-tighter">Global Footprint</p>
+                          <p className="text-xs font-bold text-white mt-0.5">{selectedCompetitor.location || selectedCompetitor.head_office || 'N/A'}</p>
                         </div>
                       </div>
                     </div>
+                  </motion.div>
 
-                    {/* Partnerships & Customers Section */}
-                    <div className="px-8 pb-8 space-y-6">
-                      <div className="h-px bg-slate-100 w-full" />
-                      
-                      <div className="space-y-4">
-                        <div className="flex items-center gap-2">
-                          <Handshake className="w-4 h-4 text-[#4B286D]" />
-                          <h4 className="text-[10px] font-black text-[#4B286D] uppercase tracking-widest">Strategic Alliances</h4>
-                        </div>
-                        <p className="text-xs text-slate-600 leading-relaxed bg-slate-50 p-3 rounded-xl border border-slate-100">
-                          {selectedCompetitor.partnerships || 'No major partnerships documented.'}
-                        </p>
-                      </div>
+                  {/* Card 2: Strategic Info & Links (Slate Gradient) */}
+                  <motion.div 
+                    initial={{ opacity: 0, x: 20 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ delay: 0.1 }}
+                    className="bg-gradient-to-br from-slate-900 to-slate-800 rounded-3xl p-6 text-white shadow-xl relative overflow-hidden"
+                  >
+                    <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full -mr-16 -mt-16 blur-2xl" />
+                    <div className="absolute bottom-0 left-0 w-24 h-24 bg-[#4B286D]/40 rounded-full -ml-12 -mb-12 blur-xl" />
+                    
+                    <div className="relative z-10">
+                      <h3 className="text-xs font-black tracking-widest text-[#BEF264] uppercase mb-6 flex items-center gap-2">
+                        <Activity className="w-4 h-4" />
+                        Strategic Positioning
+                      </h3>
 
-                      <div className="space-y-4">
-                        <div className="flex items-center gap-2">
-                          <Users className="w-4 h-4 text-[#4B286D]" />
-                          <h4 className="text-[10px] font-black text-[#4B286D] uppercase tracking-widest">Key Customers</h4>
+                      {/* Partnerships & Customers Section */}
+                      <div className="space-y-6 mb-6">
+                        <div className="space-y-2">
+                          <div className="flex items-center gap-2">
+                            <Handshake className="w-4 h-4 text-white" />
+                            <h4 className="text-[10px] font-black text-white/60 uppercase tracking-widest">Strategic Alliances</h4>
+                          </div>
+                          <p className="text-xs text-white/80 leading-relaxed bg-white/5 p-3 rounded-xl border border-white/10">
+                            {selectedCompetitor.partnerships || 'No major partnerships documented.'}
+                          </p>
                         </div>
-                        <p className="text-xs text-slate-600 leading-relaxed bg-slate-50 p-3 rounded-xl border border-slate-100">
-                          {selectedCompetitor.customers || 'Enterprise and government client list pending.'}
-                        </p>
+
+                        <div className="h-px w-full bg-white/10" />
+
+                        <div className="space-y-2">
+                          <div className="flex items-center gap-2">
+                            <Users className="w-4 h-4 text-white" />
+                            <h4 className="text-[10px] font-black text-white/60 uppercase tracking-widest">Key Customers</h4>
+                          </div>
+                          <p className="text-xs text-white/80 leading-relaxed bg-white/5 p-3 rounded-xl border border-white/10">
+                            {selectedCompetitor.customers || 'Enterprise and government client list pending.'}
+                          </p>
+                        </div>
                       </div>
 
                       {/* Website Link */}
-                      <div className="pt-2">
+                      <div className="pt-2 border-t border-white/10">
                         {selectedCompetitor.website && (
                           <a 
                             href={selectedCompetitor.website} 
                             target="_blank" 
                             rel="noreferrer"
-                            className="w-full flex items-center justify-center gap-2 py-3 bg-[#4B286D] text-white rounded-xl text-xs font-bold hover:bg-[#3d2058] transition-colors shadow-lg shadow-[#4B286D]/20"
+                            className="w-full flex items-center justify-center gap-2 py-3 mt-4 bg-[#BEF264] text-[#4B286D] rounded-xl text-xs font-bold hover:bg-[#C8E696] transition-colors shadow-lg shadow-[#BEF264]/20"
                           >
                             Explore {selectedCompetitor.domain || 'Official Site'}
                             <ExternalLink className="w-3 h-3" />
@@ -1240,9 +1351,9 @@ export default function App() {
             <motion.div 
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
-              className="w-full max-w-4xl mb-12 rounded-[2.5rem] overflow-hidden shadow-[0_20px_50px_rgba(75,40,109,0.2)] border border-white/20 relative group h-[350px]"
+              className="w-full max-w-4xl mb-12 rounded-[2.5rem] overflow-hidden shadow-[0_20px_50px_rgba(75,40,109,0.2)] border border-white/20 relative group h-[360px]"
               style={{
-                backgroundImage: 'url("https://images.unsplash.com/photo-1544197150-b99a580bb7a8?auto=format&fit=crop&w=2000&q=80")',
+                backgroundImage: 'url("/Gemini_Generated_Image_qf8z9yqf8z9yqf8z.jpg")',
                 backgroundSize: 'cover',
                 backgroundPosition: 'center',
               }}
@@ -1253,7 +1364,7 @@ export default function App() {
                     <Sparkles className="w-3 h-3" />
                     Sovereign Canadian AI Infrastructure
                   </div>
-                  <h1 className="text-4xl font-black text-white tracking-tight mb-2">TELUS AI Factory MarketIntel</h1>
+                  <h1 className="text-4xl font-black text-white tracking-tight mb-2">TELUS AI Factory</h1>
                   <p className="text-white/80 text-sm max-w-md">
                     Empowering Canada's digital future with high-performance compute and secure sovereign cloud solutions.
                   </p>
@@ -1261,17 +1372,17 @@ export default function App() {
               </div>
             </motion.div>
 
-            <h2 className="text-2xl font-bold text-slate-900 mb-2">Market Intelligence Dashboard</h2>
+            <h2 className="text-2xl font-bold text-slate-900 mb-2">MarketIntel</h2>
             <p className="text-slate-500 max-w-xl mb-10">
               Monitor the competitive landscape, track emerging trends, and gain strategic insights into the Canadian and Global AI infrastructure market.
             </p>
             <div className="grid grid-cols-3 gap-6 w-full max-w-3xl">
               {[
                 { icon: <TrendingUp className="w-9 h-9" />, title: 'Trend Analysis', desc: 'Identify emerging global and local market shifts' },
-                { icon: <BarChart3 className="w-9 h-9" />, title: 'Competitor Tracking', desc: 'Monitor competitor strategic moves' },
+                { icon: <BarChart3 className="w-9 h-9" />, title: 'Competitor Tracking', desc: 'Monitor competitor strategic moves and announcements' },
                 { icon: <RefreshCw className="w-9 h-9" />, title: 'Real-time Updates', desc: 'Stay ahead with live updates and insights' },
               ].map((item, i) => (
-                <div key={i} className="bg-white/80 backdrop-blur-lg p-6 rounded-3xl border border-white/60 shadow-[0_8px_30px_rgb(0,0,0,0.04)] hover:shadow-[0_8px_30px_rgb(75,40,109,0.08)] hover:-translate-y-1 transition-all duration-300 flex flex-col items-center text-center">
+                <div key={i} className="bg-white/80 backdrop-blur-lg p-6 rounded-3xl border border-[#685e91] shadow-[0_8px_30px_rgb(0,0,0,0.04)] hover:shadow-[0_8px_30px_rgb(75,40,109,0.08)] hover:-translate-y-1 transition-all duration-300 flex flex-col items-center text-center">
                   <div className="w-16 h-16 bg-gradient-to-br from-slate-50 to-slate-100 rounded-2xl flex items-center justify-center text-[#4B286D] mb-4 shadow-inner border border-white">
                     {item.icon}
                   </div>

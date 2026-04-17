@@ -209,7 +209,7 @@ export default function ChatBot({ competitors, marketInsights }: ChatBotProps) {
         className={`shadow-2xl flex items-center justify-center transition-all gap-1.5 ${
           isOpen 
             ? 'w-14 h-14 rounded-full bg-white text-[#4B286D] rotate-90 shadow-[0_8px_20px_rgba(0,0,0,0.15)]' 
-            : 'pl-5 pr-7 h-14 rounded-full bg-gradient-to-r from-[#4B286D] to-[#6a399c] text-white shadow-[0_8px_20px_rgba(75,40,109,0.3)] hover:shadow-[0_8px_25px_rgba(75,40,109,0.4)] hover:-translate-y-0.5'
+            : 'pl-5 pr-7 h-14 rounded-full bg-gradient-to-r from-[#4B286D] to-[#6a399c] text-white shadow-[0_8px_20px_rgba(75,40,109,0.3)] hover:shadow-[0_8px_25px_rgba(75,40,109,0.4)] hover:-translate-y-0.5 border-2 border-white/20 shadow-lg'
         }`}
       >
         {isOpen ? (

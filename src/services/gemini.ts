@@ -3,6 +3,29 @@ import { GoogleGenAI, Type } from "@google/genai";
 const apiKey = process.env.GEMINI_API_KEY;
 const ai = new GoogleGenAI({ apiKey: apiKey! });
 
+async function callGeminiWithRetry<T>(fn: () => Promise<T>, retries = 3, delay = 1000): Promise<T> {
+  try {
+    return await fn();
+  } catch (error: any) {
+    let isRateLimited = false;
+    try {
+      const errObj = JSON.parse(error.message);
+      if (errObj.error && errObj.error.code === 429) {
+        isRateLimited = true;
+      }
+    } catch (e) {
+      // Not JSON
+    }
+    
+    if (isRateLimited && retries > 0) {
+      console.warn(`Rate limited. Retrying in ${delay}ms...`);
+      await new Promise(resolve => setTimeout(resolve, delay));
+      return callGeminiWithRetry(fn, retries - 1, delay * 2);
+    }
+    throw error;
+  }
+}
+
 const AI_KEYWORDS = [
   "AI infrastructure", "Sovereign Cloud", "AI Datacentres"
 ];
@@ -23,7 +46,7 @@ Prioritize news from 2025 and 2026.
 Focus on recent developments, financial performance, and competitive moves.
 CRITICAL: The "url" field MUST be the direct, specific URL to the news article or press release, NOT a generic homepage or landing page.`;
 
-  const response = await ai.models.generateContent({
+  const response = await callGeminiWithRetry(() => ai.models.generateContent({
     model: "gemini-3-flash-preview",
     contents: prompt,
     config: {
@@ -44,7 +67,7 @@ CRITICAL: The "url" field MUST be the direct, specific URL to the news article o
         }
       }
     },
-  });
+  }));
 
   try {
     return JSON.parse(response.text || "[]");
@@ -81,17 +104,17 @@ ${context}
 
 Format the output as a professional markdown report with clear headings and sub-headings. Use bold text for emphasis. Do NOT use <br> tags anywhere in your output.`;
 
-  const response = await ai.models.generateContent({
+  const response = await callGeminiWithRetry(() => ai.models.generateContent({
     model: "gemini-3-flash-preview",
     contents: prompt,
-  });
+  }));
 
   return response.text;
 }
 
 export async function generateRegionInsights(region: string) {
   const keywords = AI_KEYWORDS.join('", "');
-  const response = await ai.models.generateContent({
+  const response = await callGeminiWithRetry(() => ai.models.generateContent({
     model: "gemini-3-flash-preview",
     contents: `Provide a comprehensive executive summary of the latest news and developments in ${region}'s AI and Cloud sector.
 Focus ONLY on news related to 'AI infrastructure', 'Sovereign Cloud', or 'AI Datacentres' within the last 7 days.
@@ -103,7 +126,7 @@ IMPORTANT: Always provide a section "Sources" at the very bottom, with markdown 
     config: {
       tools: [{ googleSearch: {} }],
     }
-  });
+  }));
 
   return response.text;
 }
@@ -112,7 +135,7 @@ export async function chatWithMarketIntel(message: string, context: { competitor
   const compList = context.competitors.join(", ");
   const insightsContext = context.currentInsights.map(i => `- ${i.title}: ${i.summary}`).join("\n");
   
-  const response = await ai.models.generateContent({
+  const response = await callGeminiWithRetry(() => ai.models.generateContent({
     model: "gemini-3-flash-preview",
     contents: `You are the TELUS AI Factory Market Intelligence Assistant. 
 Your goal is to help users understand the competitive landscape of AI and Cloud globally, with a focus on sovereign infrastructure.
@@ -130,7 +153,7 @@ CRITICAL: If you use Google Search to find information, you MUST cite your sourc
     config: {
       tools: [{ googleSearch: {} }],
     }
-  });
+  }));
 
   return response.text;
 }
@@ -141,17 +164,17 @@ export async function generateGlobalSummary(competitors: string[], marketInsight
   const compList = competitors.join(", ");
   const currentDate = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
   
-  const response = await ai.models.generateContent({
+  const response = await callGeminiWithRetry(() => ai.models.generateContent({
     model: "gemini-3.1-pro-preview",
     contents: `Provide a comprehensive "Weekly Market Overview" report for the last 7 days.
     
 Focus ONLY on news related to 'AI infrastructure', 'Sovereign Cloud', or 'AI Datacentres' within the last 7 days.
 
 CRITICAL FOCUS: 
-1. This report should PREDOMINANTLY cover Canadian news updates.
+1. This report should PREDOMINANTLY cover Canadian news updates. This includes general industry news, government policy, and infrastructure developments in Canada, NOT JUST updates related to the tracked competitors.
 2. However, VERY PROMINENT news updates from the US and other global markets MUST be included as well to provide a complete picture of the landscape.
 
-COMPITITORS TRACKED: ${compList}
+COMPITITORS TRACKED (Use as a reference, but do not limit scope to these): ${compList}
 
 KEYWORDS TO FOCUS ON: ${keywords}
 
@@ -180,21 +203,21 @@ Your report MUST be structured EXACTLY as follows, using these exact headings an
 ---
 
 ## 📰 Key News & Press Releases
-*   **[Headline 1]**: [Brief summary of the news and why it matters to infrastructure stakeholders.]
-*   **[Headline 2]**: [Brief summary of the news and why it matters to infrastructure stakeholders.]
-*   **Regulatory/Macro News**: [Note any government interventions, export controls, or energy policy changes.]
+*   **[Headline 1](URL)** [Date]: [Brief summary of the news and why it matters to infrastructure stakeholders.]
+*   **[Headline 2](URL)** [Date]: [Brief summary of the news and why it matters to infrastructure stakeholders.]
+*   **Regulatory/Macro News** [Date]: [Note any government interventions, export controls, or energy policy changes. Include direct links to sources.]
 
 ---
 
 ## 🤝 Partnership Announcements
-*   **[Company A] & [Company B]**: [Details of the collaboration. Focus on whether this is a "Go-to-Market" partnership or a technical integration.]
-*   **Partnerships and Alliances**: [Note any new agreements between organizations, chipmakers, OEM/ODMs, and power providers.]
+*   **[Company A] & [Company B](URL)** [Date]: [Details of the collaboration. Focus on whether this is a "Go-to-Market" partnership or a technical integration.]
+*   **Partnerships and Alliances** [Date]: [Note any new agreements between organizations, chipmakers, OEM/ODMs, and power providers. Include direct links to sources.]
 
 ---
 
 ## 👤 Customer Announcements
-*   **[Customer Name/Sector]**: [Who is buying? Mention significant new deployments, "AI Factory" wins, or high-profile migrations.]
-*   **Adoption Trends**: [Are customers moving toward on-prem, sovereign clouds, or hybrid models?]
+*   **[Customer Name/Sector](URL)** [Date]: [Who is buying? Mention significant new deployments, "AI Factory" wins, or high-profile migrations.]
+*   **Adoption Trends** [Date]: [Are customers moving toward on-prem, sovereign clouds, or hybrid models? Include direct links to sources.]
 
 ---
 
@@ -211,7 +234,7 @@ Format the output as a professional markdown report. Do NOT use <br> tags anywhe
     config: {
       tools: [{ googleSearch: {} }],
     }
-  });
+  }));
 
   return response.text;
 }
@@ -246,7 +269,7 @@ Return the data in the following JSON format:
   "domain": "string"
 }`;
 
-  const response = await ai.models.generateContent({
+  const response = await callGeminiWithRetry(() => ai.models.generateContent({
     model: "gemini-3-flash-preview",
     contents: prompt,
     config: {
@@ -270,7 +293,7 @@ Return the data in the following JSON format:
         required: ["location", "size", "gpu_type", "power_capacity", "customers", "partnerships", "description", "head_office", "website", "logo_url", "domain"]
       }
     }
-  });
+  }));
 
   try {
     return JSON.parse(response.text || "{}");

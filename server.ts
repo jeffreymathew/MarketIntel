@@ -100,45 +100,18 @@ const seedCompetitors = [
     description: 'ThinkOn is a wholesale provider of cloud infrastructure and data management services with a focus on security and data sovereignty.'
   },
   { 
-    name: 'Microsoft', 
-    industry: 'Technology', 
-    domain: 'microsoft.com',
-    logo_url: 'https://upload.wikimedia.org/wikipedia/commons/thumb/4/44/Microsoft_logo.svg/1200px-Microsoft_logo.svg.png',
-    head_office: 'Redmond, Washington, USA',
-    website: 'https://www.microsoft.com',
-    description: 'Microsoft enables digital transformation for the era of an intelligent cloud and an intelligent edge. Its mission is to empower every person and every organization on the planet to achieve more.'
-  },
-  { 
-    name: 'Qscale', 
-    industry: 'AI Infrastructure', 
-    domain: 'qscale.com',
-    logo_url: 'https://www.qscale.com/hubfs/QScale_Logo_Horizontal_Color_RGB.png',
-    head_office: 'Lévis, Quebec, Canada',
-    website: 'https://www.qscale.com',
-    description: 'QScale designs, builds and operates high-performance computing (HPC) centers that are tailored to the needs of AI and other data-intensive applications.'
-  },
-  { 
-    name: 'Equinix', 
-    industry: 'Digital Infrastructure', 
-    domain: 'equinix.ca',
-    logo_url: 'https://upload.wikimedia.org/wikipedia/commons/thumb/3/31/Equinix_logo.svg/1200px-Equinix_logo.svg.png',
-    head_office: 'Redwood City, California, USA',
-    website: 'https://www.equinix.ca',
-    description: 'Equinix is the world\'s digital infrastructure company, enabling digital leaders to harness a trusted platform to bring together and interconnect the foundational infrastructure that powers their success.'
-  },
-  { 
-    name: 'eStruxture', 
-    industry: 'Data Centers', 
-    domain: 'estruxture.com',
-    logo_url: 'https://www.estruxture.com/wp-content/uploads/2017/06/estruxture-logo.png',
+    name: 'Hypertec', 
+    industry: 'IT Infrastructure', 
+    domain: 'hypertec.com',
+    logo_url: 'https://hypertec.com/wp-content/uploads/2020/09/hypertec-logo.svg',
     head_office: 'Montreal, Quebec, Canada',
-    website: 'https://www.estruxture.com',
-    description: 'eStruxture is the largest Canadian-owned cloud and carrier-neutral data center provider. Our solutions are designed to give you more: more locations, more capacity, more connectivity.'
+    website: 'https://www.hypertec.com',
+    description: 'Hypertec is a large and rapidly growing global provider of innovative information technology solutions, specializing in the design, engineering, and manufacturing of custom IT infrastructure.'
   }
 ];
 
-// Remove Thomson Reuters if it exists
-db.prepare("DELETE FROM competitors WHERE name = 'Thomson Reuters'").run();
+// Remove obsolete competitors if they exist
+db.prepare("DELETE FROM competitors WHERE name IN ('Thomson Reuters', 'Qscale', 'Equinix', 'eStruxture')").run();
 
 // Seed initial markets
 const seedMarkets = [
