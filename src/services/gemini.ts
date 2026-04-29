@@ -168,12 +168,14 @@ export async function generateGlobalSummary(competitors: string[], marketInsight
     model: "gemini-3.1-pro-preview",
     contents: `You are an expert market intelligence analyst for TELUS. Provide a comprehensive weekly market report strictly following the structure of the "SAIF MarketIntel" template provided below.
 
-Focus ONLY on news related to 'AI infrastructure', 'Sovereign Cloud', or 'AI Datacentres' within the last 7 days.
-
-CRITICAL FOCUS:
-1. PREDOMINANTLY cover Canadian updates (policy, infra, competitors).
-2. Include VERY PROMINENT US/global updates for landscape context.
-3. Use the provided markdown structure exactly, including all emojis.
+CRITICAL INSTRUCTIONS:
+1. STRICT ADHERENCE: Stick strictly to the provided template structure.
+2. FACT-BASED: Only report verifiable facts. Do NOT provide personal commentary, opinions, predictions (unless explicitly requested in a section), or editorialization.
+3. NO REPETITION: Ensure each news item, partnership, or deployment is summarized ONLY once.
+4. FOCUS: Only include news related to 'AI infrastructure', 'Sovereign Cloud', or 'AI Datacentres' from the last 7 days.
+5. PREDOMINANTLY cover Canadian updates (policy, infra, competitors).
+6. Include VERY PROMINENT US/global updates for landscape context.
+7. Use the provided markdown structure exactly, including all emojis.
 
 COMPITITORS TRACKED: ${compList}
 RELEVANT DEVELOPMENTS FROM THE LAST 7 DAYS: ${marketContext}
@@ -190,30 +192,32 @@ Your report MUST be structured EXACTLY as follows:
 ## 🚀 1. Executive Summary | TLDR
 [Provide a 3-5 sentence high-level overview of the week focusing on: sovereignty updates in Canada, compute and power capacity, customer acquisitions, sustainability moves, and government updates.]
 * [Trend/Update 1]: [Brief description]
-    * Impact on AI Compute Industry & TELUS: [Immediate strategic impact]
 * [Trend/Update 2]: [Brief description]
-    * Impact on AI Compute Industry & TELUS: [Immediate strategic impact]
+* [Trend/Update n]: [Brief description]
 
 ---
 
-## 📰 2. Key News & Press Releases (Within the last week)
-[Brief summary of news/PRs that tie back to customers, competitors, infra, or regulation.]
-* **[Headline 1]** [Date]: [Brief summary of the announcement]
-    * Why it matters: [Context for TELUS and the broader industry]
-* **[Headline 2]** [Date]: [Brief summary of the announcement]
-    * Why it matters: [Context for TELUS and the broader industry]
-* **[Regulatory/Macro News]** [Date]: [Note any government interventions, export controls, or energy policies.]
-* **[Government/Regulatory/Sustainability News]**:
-    * Sovereignty Updates: [Updates on the Federal Sovereign AI Compute Strategy or provincial data residency mandates.]
-    * Sustainability Plays: [PUE benchmarks, green financing, or waste-heat recovery initiatives.]
-    * Government Updates: [Grants, policy shifts, or Indigenous participation requirements in new builds.]
+## 📰 2. Key News & Press Releases (within the last week)
+### 📰 Industry News Highlights
+[This section highlights a brief summary of news/PRs that tie back to customers, competitors, and infrastructure.]
+* **[Headline 1]**: [Brief summary of the announcement]
+* **[Headline 2]**: [Brief summary of the announcement]
+* **[Headline n]**: [Brief summary of the announcement]
 
 ---
 
 ## 🤝 Strategic Partnership Spotlight
 [This section highlights new agreements between private/public organizations, chipmakers, financial, or infrastructure providers.]
-* **[Partner A] & [Partner B]** [Date]: [Details of the collaboration. Focus on "Go-to-Market," Financial, Technical, or Infrastructure/Build partnerships.]
-* **Strategic Objective**: [What is the intended outcome/benefits/commitments of this alliance?]
+* **[Partner A] & [Partner B]**: [Details of the collaboration. Focus on "Go-to-Market," Financial, Technical, or Infrastructure/Build partnerships.]
+* **[Partner n] & [Partner n]**: [Details of the collaboration. Focus on "Go-to-Market," Financial, Technical, or Infrastructure/Build partnerships.]
+
+---
+
+## 🏛️ Government and Regulatory News
+[This section highlights key government, federal or provincial updates.]
+* **[Regulatory News]**: [Note any government interventions, export controls, energy policies, or data center sustainability changes.]
+* **[Government News]**: [Note any Government updates, including investment funding, grants, policy shifts, or Indigenous participation requirements]
+* **[Sovereignty Updates]**: [Updates on the Federal Sovereign AI Compute Strategy or provincial data residency mandates.]
 
 ---
 
@@ -228,18 +232,16 @@ Your report MUST be structured EXACTLY as follows:
 | **ThinkOn** | [Summary of recent strategic move/pivot]<br>_Note changes in supply chain, pricing, or talent_ |
 | **QScale** | [Summary of recent strategic move/pivot]<br>_Note changes in supply chain, pricing, or talent_ |
 
-**Market Positioning**: [Briefly contrast how the "Big Three" or "Challengers" are currently stacking up against one another this week.]
-
 ---
 
 ## 👤 4. Customer & Market Landscape
-[Monitoring target segments and E2E value chain uptake. Provide detail for each segment in the table, expanding on trends, specific deployments, customer pain points, win drivers, and key decision-making factors. If insufficient info is available, indicate 'Data pending evaluation'.]
+[Monitoring target segments and E2E value chain uptake. Provide detail for each segment in the table, expanding on trends, specific deployments, customer pain points, win drivers, and key decision-making factors. YOU MUST USE THE GOOGLE SEARCH TOOL TO FIND RELEVANT RECENT DEVELOPMENTS FOR EACH CELL if the provided market context is insufficient. If after searching you still cannot find verified details for a cell, write 'No recent data detected' instead of leaving it blank or using 'Data pending evaluation'.]
 
-| Market Segment | Adoption Trends | Significant New Deployments & Case Studies | E2E Value Chain Focus | Key Decision Drivers |
-| :--- | :--- | :--- | :--- | :--- |
-| **Wholesale** | [Detailed trends: On-prem, Sovereign, Hybrid; Growth/Decline; Competitive landscape] | [Multiple specific new cluster/site activations/moves] | AI Physical Infrastructure / Platforms / Apps | [e.g. Latency, Cost, Power availability] |
-| **Enterprise / Public** | [Detailed trends: Migration paths, Data residency, Security profiles] | [Multiple specific platform/vault migrations or major contract wins] | AI Physical Infrastructure / Platforms / Apps | [e.g. Compliance, Data sovereignty, Scalability] |
-| **Research/Start-ups/SMBs** | [Detailed trends: SaaS-to-IaaS shifts, Open model usage] | [Multiple specific application layer/service/research wins] | AI Physical Infrastructure / Platforms / Apps | [e.g. Ease of use, GPU accessibility, Cost] |
+| Market Segment | Adoption Trends | Significant New Deployments & Case Studies | E2E Value Chain Focus |
+| :--- | :--- | :--- | :--- |
+| **Wholesale** | [Research trends: On-prem, Sovereign, Hybrid; Growth/Decline; Competitive landscape] | [Research specific new cluster/site activations/moves] | AI Physical Infrastructure / Platforms / Apps |
+| **Enterprise / Public** | [Research trends: Migration paths, Data residency, Security profiles] | [Research specific platform/vault migrations or major contract wins] | AI Physical Infrastructure / Platforms / Apps |
+| **Research/Start-ups/SMBs** | [Research trends: SaaS-to-IaaS shifts, Open model usage] | [Research specific application layer/service/research wins] | AI Physical Infrastructure / Platforms / Apps |
 
 ---
 
@@ -253,9 +255,7 @@ Your report MUST be structured EXACTLY as follows:
 ## 🔮 6. Future-Looking Market Outlook
 [Provide a forward-looking "Thesis of the Week." Identify an "under-the-radar" risk or opportunity.]
 * **0-3 Months Opportunity/Risk**: [Near-term catalyst]
-    * Impact on TELUS and AI compute industry: [Strategic adjustment needed]
 * **3-6 Months Opportunity/Risk**: [Medium-term trend]
-    * Impact on TELUS and AI compute industry: [Strategic adjustment needed]
 
 ---
 
@@ -266,7 +266,7 @@ Your report MUST be structured EXACTLY as follows:
 3. AI Financial Outlook: [ARR/Growth/Beat] ([Link])
 4. Interconnection Growth: [Total Connections/Deal Type %] ([Link])
 5. Compute Capacity & Expansion in Canada and Globally: [MW Scale/Financing] ([Link])
-6. Power Capacity in Canada and Globally: [Details]
+6. Power Capacity in Canada and Globally: [Power/Cooling] ([Link])
 
 Format the output as a professional markdown report. Do NOT use <br> tags anywhere in your output. Use Google Search to find specific details for the last 7 days and the specified keywords if the provided context is insufficient.`,
     config: {
